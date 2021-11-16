@@ -162,6 +162,75 @@ class Electron(candidate.PtEtaPhiMCandidate, base.NanoCollection):
     def matched_photon(self):
         return self._events().Photon._apply_global_index(self.photonIdxG)
 
+    VIDNESTEDCUTS = [
+        "MinPtCut",
+        "GsfEleSCEtaMultiRangeCut",
+        "GsfEleDEtaInSeedCut",
+        "GsfEleDPhiInCut",
+        "GsfEleFull5x5SigmaIEtaIEtaCut",
+        "GsfEleHadronicOverEMEnergyScaledCut",
+        "GsfEleEInverseMinusPInverseCut",
+        "GsfEleRelPFIsoScaledCut",
+        "GsfEleConversionVetoCut",
+        "GsfEleMissingHitsCut",
+    ]
+    """vidNestedWPBitmap interpretations.  Use `Electron.VIDNESTEDCUTS` to query"""
+
+    def vidPassingCuts(self, working_point, *cuts):
+        """Check that one or more vidNestedWP cuts are passed
+
+        Parameters
+        ----------
+            working_point : int
+                An integer representing the cutBasedID that the list of nested cuts must pass (>=), enumerated
+                in the 'FAIL', 'VETO', 'LOOSE', 'MEDIUM', and 'TIGHT' attributes.
+            cuts : str or list
+                A list of cuts that are required to be greater than or equal to the working_point.
+                If the first argument is a list, it is expanded and subsequent arguments ignored.
+                Possible cuts are enumerated in the `VIDNESTEDCUTS` attribute
+
+        Returns a boolean array
+        """
+        if not len(cuts):
+            raise ValueError("No cuts specified")
+        elif isinstance(cuts[0], list):
+            cuts = cuts[0]
+        mask = awkward.ones_like(self.vidNestedWPBitmap, dtype=bool)
+        for cut in cuts:
+            shift = 3 * self.VIDNESTEDCUTS.index(cut)
+            mask = mask & (((self.vidNestedWPBitmap >> shift) & 0b111) >= working_point)
+        return mask
+
+    def vidUnpackedWPDictionary(self, cuts=None):
+        """unpack the vidNestedWPBitmap
+
+        Parameters
+        ----------
+            cuts : str or list
+                A list of cuts that should be unpacked.
+                If the first argument is a list, it is expanded and subsequent arguments ignored.
+                Possible cuts are enumerated in the `VIDNESTEDCUTS` attribute
+
+        Returns a dictionary of cuts and values from the vidNestedWPBitmap
+        """
+        if isinstance(cuts[0], list):
+            cuts = cuts[0]
+        if len(cuts):
+            cut_iter = cuts
+        else:
+            cut_iter = self.VIDNESTEDCUTS
+        results = dict()
+        for cut in cut_iter:
+            shift = 3 * self.VIDNESTEDCUTS.index(cut)
+            results[cut] = awkward.values_astype(
+                (self.vidNestedWPBitmap >> shift) & 0b111,
+                "B",
+                highlevel=True,
+                behavior=None,
+            )
+            # 'B' is numpyp.uint8
+        return results
+
 
 _set_repr_name("Electron")
 
