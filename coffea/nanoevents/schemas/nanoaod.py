@@ -67,6 +67,7 @@ class NanoAODSchema(BaseSchema):
         "GenPart": "GenParticle",
         "PV": "Vertex",
         "SV": "SecondaryVertex",
+        "CorrT1METJet": "CorrT1METJet",
     }
     """Default configuration for mixin types, based on the collection name.
 

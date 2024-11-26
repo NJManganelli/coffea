@@ -170,6 +170,9 @@ class CorrectedJetsFactory(object):
         in_dict = {field: out[field] for field in fields}
         out_dict = dict(in_dict)
 
+        if "pt" not in fields:
+            out_dict[self.name_map["JetPt"]]=out.pt
+
         # take care of nominal JEC (no JER if available)
         out_dict[self.name_map["JetPt"] + "_orig"] = out_dict[self.name_map["JetPt"]]
         out_dict[self.name_map["JetMass"] + "_orig"] = out_dict[
