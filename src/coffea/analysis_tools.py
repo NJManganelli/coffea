@@ -610,11 +610,11 @@ class CutflowToNpz:
         )
         self._nevonecut = list(self._nevonecut)
         self._nevcutflow = list(self._nevcutflow)
-        self._wgtevonecut = list(self._wgtevonecut)
-        self._wgtevcutflow = list(self._wgtevcutflow)
-        self._masksonecut = list(self._masksonecut)
-        self._maskscutflow = list(self._maskscutflow)
-        self._weights = list(self._weights)
+        self._wgtevonecut = list(self._wgtevonecut) if self._wgtevonecut is not None else None
+        self._wgtevcutflow = list(self._wgtevcutflow) if self._wgtevcutflow is not None else None
+        self._masksonecut = list(self._masksonecut) if self._masksonecut is not None else None
+        self._maskscutflow = list(self._maskscutflow) if self._maskscutflow is not None else None
+        self._weights = list(self._weights) if self._weights is not None else None
         self._saver(
             self._file,
             labels=self._labels,
@@ -934,6 +934,16 @@ class Cutflow:
                 "nevcutflow",
                 "masksonecut",
                 "maskscutflow",
+            ],
+        )
+        WeightedCutflowResult = namedtuple(
+            "WeightedCutflowResult",
+            [
+                "labels",
+                "nevonecut",
+                "nevcutflow",
+                "masksonecut",
+                "maskscutflow",
                 "wgtevonecut",
                 "wgtevcutflow",
                 "weights",
@@ -941,6 +951,26 @@ class Cutflow:
             ],
         )
         labels = ["initial"] + list(self._names)
+        if self._weighted:
+            return WeightedCutflowResult(
+                labels,
+                self._nevonecut,
+                self._nevcutflow,
+                self._masksonecut,
+                self._maskscutflow,
+                self._wgtevonecut,
+                self._wgtevcutflow,
+                self._weights if _include_weights else None,
+                self._weightsmodifier if _include_weights else None,
+            )
+        else:
+            return CutflowResult(
+                labels,
+                self._nevonecut,
+                self._nevcutflow,
+                self._masksonecut,
+                self._maskscutflow,
+            )
         return CutflowResult(
             labels,
             self._nevonecut,
@@ -983,12 +1013,23 @@ class Cutflow:
             nevcutflow,
             masksonecut,
             maskscutflow,
-            wgtevonecut,
-            wgtevcutflow,
-            weights,
-            weightsmodifier,
+            *packed_wgt_info,
         ) = self.result(includeweights=includeweights)
 
+        if self._weighted:
+            (
+                wgtevonecut,
+                wgtevcutflow,
+                weights,
+                weightsmodifier,
+            ) = packed_wgt_info
+        else:
+            (
+                wgtevonecut,
+                wgtevcutflow,
+                weights,
+                weightsmodifier,
+            ) = (None, None, None, None)
         if compressed:
             saver = numpy.savez_compressed
         else:
