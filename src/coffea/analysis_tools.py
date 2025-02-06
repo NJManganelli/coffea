@@ -971,17 +971,6 @@ class Cutflow:
                 self._masksonecut,
                 self._maskscutflow,
             )
-        return CutflowResult(
-            labels,
-            self._nevonecut,
-            self._nevcutflow,
-            self._masksonecut,
-            self._maskscutflow,
-            self._wgtevonecut if self._weighted else None,
-            self._wgtevcutflow if self._weighted else None,
-            self._weights if _include_weights else None,
-            self._weightsmodifier if _include_weights else None,
-        )
 
     def to_npz(self, file, compressed=False, compute=False, includeweights=None):
         """Saves the results of the cutflow to a .npz file
