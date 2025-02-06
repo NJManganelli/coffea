@@ -508,10 +508,29 @@ class NminusOneToNpz:
 
 
 class CutflowToNpz:
-    """Object to be returned by Cutflow.to_npz()"""
+    """Object to be returned by Cutflow.to_npz()
+
+    Parameters
+    ----------
+        includeweights : bool, optional
+            Whether to include the weights in the saved npz file. Default is None, which includes the weights if the Cutflow was instantiated with weights
+            and excludes them otherwise.
+    """
 
     def __init__(
-        self, file, labels, nevonecut, nevcutflow, masksonecut, maskscutflow, saver
+        self,
+        file,
+        labels,
+        nevonecut,
+        nevcutflow,
+        masksonecut,
+        maskscutflow,
+        saver,
+        wgtevonecut=None,
+        wgtevcutflow=None,
+        weights=None,
+        weightsmodifier=None,
+        includeweights=None,
     ):
         self._file = file
         self._labels = labels
@@ -520,9 +539,16 @@ class CutflowToNpz:
         self._masksonecut = masksonecut
         self._maskscutflow = maskscutflow
         self._saver = saver
+        self._wgtevonecut = wgtevonecut
+        self._wgtevcutflow = wgtevcutflow
+        self._weights = weights if includeweights else None
+        self._weightsmodifier = weightsmodifier
+        self._weighted = (self._wgtevonecut is not None) and (
+            self._wgtevcutflow is not None
+        )
 
     def __repr__(self):
-        return f"CutflowToNpz(file={self._file}), labels={self._labels})"
+        return f"CutflowToNpz(file={self._file}), labels={self._labels}, weighted={self._weighted}, weightsmodifier={self._weightsmodifier})"
 
     @property
     def file(self):
@@ -548,17 +574,47 @@ class CutflowToNpz:
     def maskscutflow(self):
         return self._maskscutflow
 
+    @property
+    def wgtevonecut(self):
+        return self._wgtevonecut
+
+    @property
+    def wgtevcutflow(self):
+        return self._wgtevcutflow
+
+    @property
+    def weights(self):
+        return self._weights
+
+    @property
+    def weightsmodifier(self):
+        return self._weightsmodifier
+
     def compute(self):
-        self._nevonecut, self._nevcutflow = dask.compute(
-            self._nevonecut, self._nevcutflow
-        )
-        self._masksonecut, self._maskscutflow = dask.compute(
-            self._masksonecut, self._maskscutflow
+        (
+            self._nevonecut,
+            self._nevcutflow,
+            self._wgtevonecut,
+            self._wgtevcutflow,
+            self._masksonecut,
+            self._maskscutflow,
+            self._weights,
+        ) = dask.compute(
+            self._nevonecut,
+            self._nevcutflow,
+            self._wgtevonecut,
+            self._wgtevcutflow,
+            self._masksonecut,
+            self._maskscutflow,
+            self._weights,
         )
         self._nevonecut = list(self._nevonecut)
         self._nevcutflow = list(self._nevcutflow)
+        self._wgtevonecut = list(self._wgtevonecut)
+        self._wgtevcutflow = list(self._wgtevcutflow)
         self._masksonecut = list(self._masksonecut)
         self._maskscutflow = list(self._maskscutflow)
+        self._weights = list(self._weights)
         self._saver(
             self._file,
             labels=self._labels,
@@ -566,6 +622,10 @@ class CutflowToNpz:
             nevcutflow=self._nevcutflow,
             masksonecut=self._masksonecut,
             maskscutflow=self._maskscutflow,
+            wgtevonecut=self._wgtevonecut,
+            wgtevcutflow=self._wgtevcutflow,
+            weights=self._weights,
+            weightsmodifier=self._weightsmodifier,
         )
 
 
@@ -806,7 +866,17 @@ class Cutflow:
     """Object to be returned by PackedSelection.cutflow()"""
 
     def __init__(
-        self, names, nevonecut, nevcutflow, masksonecut, maskscutflow, delayed_mode
+        self,
+        names,
+        nevonecut,
+        nevcutflow,
+        masksonecut,
+        maskscutflow,
+        delayed_mode,
+        wgtevonecut=None,
+        wgtevcutflow=None,
+        weights=None,
+        weightsmodifier=None,
     ):
         self._names = names
         self._nevonecut = nevonecut
@@ -814,12 +884,23 @@ class Cutflow:
         self._masksonecut = masksonecut
         self._maskscutflow = maskscutflow
         self._delayed_mode = delayed_mode
+        self._wgtevonecut = wgtevonecut
+        self._wgtevcutflow = wgtevcutflow
+        self._weights = weights
+        self._weightsmodifier = weightsmodifier
+        self._weighted = self._weights is not None
 
     def __repr__(self):
-        return f"Cutflow(selections={self._names})"
+        return f"Cutflow(selections={self._names}, weighted={self._weighted}, weightsmodifier={self._weightsmodifier})"
 
-    def result(self):
+    def result(self, includeweights=None):
         """Returns the results of the cutflow as a namedtuple
+
+        Parameters
+        ----------
+            includeweights : bool, optional
+                Whether to include the weights in the result. Default is None, which includes the weights if the Cutflow was instantiated with weights
+                and excludes them otherwise.
 
         Returns
         -------
@@ -834,10 +915,30 @@ class Cutflow:
                     The boolean mask vectors of which events pass each cut alone as a list of materialized or delayed boolean arrays
                 maskscutflow : list of boolean numpy.ndarray or dask_awkward.lib.core.Array objects
                     The boolean mask vectors of which events pass the cumulative cutflow a list of materialized or delayed boolean arrays
+                wgtevonecut : list of floats or dask_awkward.lib.core.Scalar objects, or None if no weights were provided
+                    The weighted number of events that survive each cut alone as a list of floats or delayed floats
+                wgtevcutflow : list of floats or dask_awkward.lib.core.Scalar objects, or None if no weights were provided
+                    The weighted number of events that survive the cumulative cutflow as a list of floats or delayed floats
+                weights : float numpy.ndarray or dask_awkward.lib.core.Array object, or None if no weights were provided
+                    The Weights.weight(modifier) array provided as input. Must be masked by masksonecut or maskscutflow to get the corresponding weights
+                weightsmodifier : str or None
+                    The modifier passed to Weights.weight([modifier]) if weights were provided
+
         """
+        _include_weights = self._weighted if includeweights is None else includeweights
         CutflowResult = namedtuple(
             "CutflowResult",
-            ["labels", "nevonecut", "nevcutflow", "masksonecut", "maskscutflow"],
+            [
+                "labels",
+                "nevonecut",
+                "nevcutflow",
+                "masksonecut",
+                "maskscutflow",
+                "wgtevonecut",
+                "wgtevcutflow",
+                "weights",
+                "weightsmodifier",
+            ],
         )
         labels = ["initial"] + list(self._names)
         return CutflowResult(
@@ -846,9 +947,13 @@ class Cutflow:
             self._nevcutflow,
             self._masksonecut,
             self._maskscutflow,
+            self._wgtevonecut if self._weighted else None,
+            self._wgtevcutflow if self._weighted else None,
+            self._weights if _include_weights else None,
+            self._weightsmodifier if _include_weights else None,
         )
 
-    def to_npz(self, file, compressed=False, compute=False):
+    def to_npz(self, file, compressed=False, compute=False, includeweights=None):
         """Saves the results of the cutflow to a .npz file
 
         Parameters
@@ -872,7 +977,17 @@ class Cutflow:
                 If ``compute=True``, returns None. Otherwise, returns an object
                 that can be used to start writing the data by calling compute().
         """
-        labels, nevonecut, nevcutflow, masksonecut, maskscutflow = self.result()
+        (
+            labels,
+            nevonecut,
+            nevcutflow,
+            masksonecut,
+            maskscutflow,
+            wgtevonecut,
+            wgtevcutflow,
+            weights,
+            weightsmodifier,
+        ) = self.result(includeweights=includeweights)
 
         if compressed:
             saver = numpy.savez_compressed
@@ -880,7 +995,18 @@ class Cutflow:
             saver = numpy.savez
 
         out = CutflowToNpz(
-            file, labels, nevonecut, nevcutflow, masksonecut, maskscutflow, saver
+            file,
+            labels,
+            nevonecut,
+            nevcutflow,
+            masksonecut,
+            maskscutflow,
+            saver,
+            wgtevonecut,
+            wgtevcutflow,
+            weights,
+            weightsmodifier,
+            includeweights=includeweights,
         )
         if compute:
             out.compute()
@@ -888,34 +1014,64 @@ class Cutflow:
         else:
             return out
 
-    def print(self):
-        """Prints the statistics of the Cutflow"""
+    def print(self, weighted=None, scale=None):
+        """Prints the statistics of the Cutflow
+
+        Parameters
+        ----------
+            weighted : bool, optional
+                Whether to print the weighted statistics. Default is None, which prints the weighted statistics
+                if the cutflow was instantiated with weights and unweighted statistics otherwise.
+            scale : float, optional
+                A scale factor to apply to the cutflow statistics. Default is None, which does not apply any scaling.
+        """
+        do_weighted = self._weighted if weighted is None else weighted
 
         if self._delayed_mode:
             warnings.warn(
                 "Printing the cutflow statistics is going to compute dask_awkward objects."
             )
-            self._nevonecut, self._nevcutflow = dask.compute(
-                self._nevonecut, self._nevcutflow
+            self._nevonecut, self._nevcutflow, self._wgtevonecut, self._wgtevcutflow = (
+                dask.compute(
+                    self._nevonecut,
+                    self._nevcutflow,
+                    self._wgtevonecut,
+                    self._wgtevcutflow,
+                )
             )
 
-        nevonecut = self._nevonecut
-        nevcutflow = self._nevcutflow
+        xevonecut = self._nevonecut if not do_weighted else self._wgtevonecut
+        xevcutflow = self._nevcutflow if not do_weighted else self._wgtevcutflow
+
+        if scale is not None:
+            if isinstance(scale, (int, float)):
+                xevonecut = [x * scale for x in xevonecut]
+                xevcutflow = [x * scale for x in xevcutflow]
+            else:
+                raise ValueError(
+                    f"The scale must be an integer or a float, {scale} (type {type(scale)}) was provided."
+                )
 
         print("Cutflow stats:")
         for i, name in enumerate(self._names):
             stats = (
                 f"Cut {name:<20}:"
-                f"pass = {nevonecut[i+1]:<20}"
-                f"cumulative pass = {nevcutflow[i+1]:<20}"
-                f"all = {nevonecut[0]:<20}"
-                f"-- eff = {nevonecut[i+1]*100/nevonecut[0]:.1f} %{'':<20}"
-                f"-- cumulative eff = {nevcutflow[i+1]*100/nevcutflow[0]:.1f} %"
+                f"pass = {xevonecut[i+1]:<20}"
+                f"cumulative pass = {xevcutflow[i+1]:<20}"
+                f"all = {xevonecut[0]:<20}"
+                f"-- eff = {xevonecut[i+1]*100/xevonecut[0]:.1f} %{'':<20}"
+                f"-- cumulative eff = {xevcutflow[i+1]*100/xevcutflow[0]:.1f} %"
             )
             print(stats)
 
-    def yieldhist(self):
+    def yieldhist(self, weighted=None):
         """Returns the cutflow yields as ``hist.Hist`` objects
+
+        Parameters
+        ----------
+            weighted : bool, optional
+                Whether to fill the histograms with weights. Default is None, which applies the weights
+                if the cutflow was instantiated with weights and unweighted statistics otherwise.
 
         Returns
         -------
@@ -926,30 +1082,61 @@ class Cutflow:
             labels : list of strings
                 The bin labels of the histograms
         """
+        do_weighted = self._weighted if weighted is None else weighted
         labels = ["initial"] + list(self._names)
 
         if not self._delayed_mode:
             honecut = hist.Hist(hist.axis.Integer(0, len(labels), name="onecut"))
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
-            honecut.fill(numpy.arange(len(labels), dtype=int), weight=self._nevonecut)
-            hcutflow.fill(numpy.arange(len(labels), dtype=int), weight=self._nevcutflow)
+
+            honecut.fill(
+                numpy.arange(len(labels), dtype=int),
+                weight=self._wgtevonecut if do_weighted else self._nevonecut,
+            )
+            hcutflow.fill(
+                numpy.arange(len(labels), dtype=int),
+                weight=self._wgtevcutflow if do_weighted else self._nevcutflow,
+            )
 
         else:
             honecut = hist.dask.Hist(hist.axis.Integer(0, len(labels), name="onecut"))
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
 
-            for i, weight in enumerate(self._masksonecut, 1):
+            for i, mask in enumerate(self._masksonecut, 1):
+                weight = (
+                    self._weights.weight(self._weightsmodifier)[mask]
+                    if do_weighted
+                    else mask
+                )
                 honecut.fill(
                     dask_awkward.full_like(weight, i, dtype=int), weight=weight
                 )
-            honecut.fill(dask_awkward.zeros_like(weight, dtype=int))
-            for i, weight in enumerate(self._maskscutflow, 1):
+            weight = (
+                self._weights.weight(self._weightsmodifier)
+                if do_weighted
+                else dask_awkward.ones_like(self._masksonecut[0], dtype=bool)
+            )
+            honecut.fill(dask_awkward.zeros_like(weight, dtype=int), weight=weight)
+
+            for i, mask in enumerate(self._maskscutflow, 1):
+                weight = (
+                    self._weights.weight(self._weightsmodifier)[mask]
+                    if do_weighted
+                    else mask
+                )
                 hcutflow.fill(
                     dask_awkward.full_like(weight, i, dtype=int), weight=weight
                 )
-            hcutflow.fill(dask_awkward.zeros_like(weight, dtype=int))
+            weight = (
+                self._weights.weight(self._weightsmodifier)
+                if do_weighted
+                else dask_awkward.ones_like(self._maskscutflow[0], dtype=bool)
+            )
+            hcutflow.fill(
+                dask_awkward.zeros_like(self._maskscutflow[0], dtype=int), weight=weight
+            )
 
         return honecut, hcutflow, labels
 
@@ -962,6 +1149,7 @@ class Cutflow:
         stop=None,
         edges=None,
         transform=None,
+        weighted=None,
     ):
         """Plot the histograms of variables for each step of the N-1 selection
 
@@ -989,6 +1177,9 @@ class Cutflow:
             transform : iterable of hist.axis.transform objects or Nones, optional
                 The transforms to apply to each variable histogram axis. If not specified, it defaults to None.
                 Must be the same length as ``vars``.
+            weighted : bool, optional
+                Whether to fill the histograms with weights. Default is None, which applies the weights
+                if the cutflow was instantiated with weights and unweighted distributions otherwise.
 
         Returns
         -------
@@ -1001,6 +1192,9 @@ class Cutflow:
             labels : list of strings
                 The bin labels of the y axis of the histograms.
         """
+        do_weighted = self._weighted if weighted is None else weighted
+        Hist = hist.dask.Hist if self._delayed_mode else hist.Hist
+        ak_or_dak = dask_awkward if self._delayed_mode else awkward
         if self._delayed_mode:
             for name, var in vars.items():
                 if not compatible_partitions(var, self._masksonecut[0]):
@@ -1041,51 +1235,41 @@ class Cutflow:
                 "vars, axes, bins, start, stop, edges, and transform must be the same length"
             )
 
-        if not self._delayed_mode:
-            for (name, var), axis in zip(vars.items(), axes):
-                honecut = hist.Hist(
-                    axis,
-                    hist.axis.Integer(0, len(labels), name="onecut"),
+        for (name, var), axis in zip(vars.items(), axes):
+            honecut = Hist(
+                axis,
+                hist.axis.Integer(0, len(labels), name="onecut"),
+            )
+            hcutflow = honecut.copy()
+            hcutflow.axes.name = name, "cutflow"
+
+            wgt = self._weights if do_weighted else None
+            honecut.fill_flattened(
+                var, ak_or_dak.zeros_like(var, dtype=int), weight=wgt
+            )
+            hcutflow.fill_flattened(
+                var, ak_or_dak.zeros_like(var, dtype=int), weight=wgt
+            )
+
+            for i, mask in enumerate(self.result().masksonecut, 1):
+                masked_var = var[mask]
+                masked_wgt = wgt[mask] if do_weighted else None
+                honecut.fill_flattened(
+                    masked_var,
+                    ak_or_dak.full_like(masked_var, i, dtype=int),
+                    weight=masked_wgt,
                 )
-                hcutflow = honecut.copy()
-                hcutflow.axes.name = name, "cutflow"
+            histsonecut.append(honecut)
 
-                arr = awkward.flatten(var)
-                honecut.fill(arr, awkward.zeros_like(arr, dtype=int))
-                hcutflow.fill(arr, awkward.zeros_like(arr, dtype=int))
-
-                for i, mask in enumerate(self.result().masksonecut, 1):
-                    arr = awkward.flatten(var[mask])
-                    honecut.fill(arr, awkward.full_like(arr, i, dtype=int))
-                histsonecut.append(honecut)
-
-                for i, mask in enumerate(self.result().maskscutflow, 1):
-                    arr = awkward.flatten(var[mask])
-                    hcutflow.fill(arr, awkward.full_like(arr, i, dtype=int))
-                histscutflow.append(hcutflow)
-
-        else:
-            for (name, var), axis in zip(vars.items(), axes):
-                honecut = hist.dask.Hist(
-                    axis,
-                    hist.axis.Integer(0, len(labels), name="onecut"),
+            for i, mask in enumerate(self.result().maskscutflow, 1):
+                masked_var = var[mask]
+                masked_wgt = wgt[mask] if do_weighted else None
+                hcutflow.fill_flattened(
+                    masked_var,
+                    ak_or_dak.full_like(masked_var, i, dtype=int),
+                    weight=masked_wgt,
                 )
-                hcutflow = honecut.copy()
-                hcutflow.axes.name = name, "cutflow"
-
-                arr = dask_awkward.flatten(var)
-                honecut.fill(arr, dask_awkward.zeros_like(arr, dtype=int))
-                hcutflow.fill(arr, dask_awkward.zeros_like(arr, dtype=int))
-
-                for i, mask in enumerate(self.result().masksonecut, 1):
-                    arr = dask_awkward.flatten(var[mask])
-                    honecut.fill(arr, dask_awkward.full_like(arr, i, dtype=int))
-                histsonecut.append(honecut)
-
-                for i, mask in enumerate(self.result().maskscutflow, 1):
-                    arr = dask_awkward.flatten(var[mask])
-                    hcutflow.fill(arr, dask_awkward.full_like(arr, i, dtype=int))
-                histscutflow.append(hcutflow)
+            histscutflow.append(hcutflow)
 
         return histsonecut, histscutflow, labels
 
@@ -1394,7 +1578,7 @@ class PackedSelection:
 
         return NminusOne(names, nev, masks, self.delayed_mode)
 
-    def cutflow(self, *names):
+    def cutflow(self, *names, commonmask=None, weights=None, weightsmodifier=None):
         """Compute the cutflow for a set of selections
 
         Returns an object which can return a list of the number of events that pass all the previous selections including the current one
@@ -1409,6 +1593,12 @@ class PackedSelection:
         ----------
             ``*names`` : args
                 The named selections to use, need to be a subset of the selections already added
+            commonmask : boolean numpy.ndarray or dask_awkward.lib.core.Array, optional
+                A common mask which is applied for all the selections, including the initial one. Default is None.
+            weights : coffea.analysis_tools.Weights instance, optional
+                The Weights object to use for the cutflow. If not provided, the cutflow will be unweighted.
+            modifier : str, optional
+                The modifier to use for the weights. Default is None which results in Weights.weight() being called without a modifier.
 
         Returns
         -------
@@ -1422,24 +1612,60 @@ class PackedSelection:
                 )
 
         masksonecut, maskscutflow = [], []
+        if weights is not None:
+            weightsonecut, weightscutflow = [], []
+        else:
+            weightsonecut, weightscutflow, wgtevonecut, wgtevcutflow = (
+                None,
+                None,
+                None,
+                None,
+            )
         for i, cut in enumerate(names):
             mask1 = self.any(cut)
             mask2 = self.all(*(names[: i + 1]))
+            if commonmask:
+                mask1 = mask1 & commonmask
+                mask2 = mask2 & commonmask
             masksonecut.append(mask1)
             maskscutflow.append(mask2)
+            if weights is not None:
+                weights1 = weights.weight(weightsmodifier)[mask1]
+                weights2 = weights.weight(weightsmodifier)[mask2]
+                weightsonecut.append(weights1)
+                weightscutflow.append(weights2)
 
         if not self.delayed_mode:
             nevonecut = [len(self._data)]
             nevcutflow = [len(self._data)]
             nevonecut.extend(numpy.sum(masksonecut, axis=1))
             nevcutflow.extend(numpy.sum(maskscutflow, axis=1))
+            if weights is not None:
+                wgtevonecut = [len(self._data)]
+                wgtevcutflow = [len(self._data)]
+                wgtevonecut.extend(numpy.sum(weightsonecut, axis=1))
+                wgtevcutflow.extend(numpy.sum(weightscutflow, axis=1))
 
         else:
             nevonecut = [dask_awkward.count(self._data, axis=0)]
             nevcutflow = [dask_awkward.count(self._data, axis=0)]
             nevonecut.extend([dask_awkward.sum(mask1) for mask1 in masksonecut])
             nevcutflow.extend([dask_awkward.sum(mask2) for mask2 in maskscutflow])
+            if weights is not None:
+                wgtevonecut = [dask_awkward.count(self._data, axis=0)]
+                wgtevcutflow = [dask_awkward.count(self._data, axis=0)]
+                wgtevonecut.extend([dask_awkward.sum(wgt1) for wgt1 in weightsonecut])
+                wgtevcutflow.extend([dask_awkward.sum(wgt2) for wgt2 in weightscutflow])
 
         return Cutflow(
-            names, nevonecut, nevcutflow, masksonecut, maskscutflow, self.delayed_mode
+            names,
+            nevonecut,
+            nevcutflow,
+            masksonecut,
+            maskscutflow,
+            self.delayed_mode,
+            wgtevonecut,
+            wgtevcutflow,
+            weights,
+            weightsmodifier,
         )
