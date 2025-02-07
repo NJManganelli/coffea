@@ -79,9 +79,9 @@ def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False,
     irregular_masks = []
     # TODO: _generate_slices is used to work around the issue addressed in awkward PR https://github.com/scikit-hep/awkward/pull/3312
     # which was merged in awkward v2.7.2 (https://github.com/scikit-hep/awkward/releases/tag/v2.7.2) and this can be removed when it becomes the minimum version for coffea
-    for slice in _generate_slices(len(mask_inputs), max_elements=128):
+    for slc in _generate_slices(len(mask_inputs), max_elements=128):
         # create subarrays of the masks to concatenate, to work around issue prior to awkward v2.7.2
-        irregular_masks.append(awkward.from_regular(awkward.concatenate(mask_inputs[slice], axis=1), axis=1))
+        irregular_masks.append(awkward.from_regular(awkward.concatenate(mask_inputs[slc], axis=1), axis=1))
     if len(irregular_masks) == 1:
         # unwrap the new concatenated (irregular) masks if there is only one
         irregular_mask = irregular_masks[0]
