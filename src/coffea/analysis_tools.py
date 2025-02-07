@@ -1063,6 +1063,8 @@ class Cutflow:
                 Whether to immediately start writing or to return an object
                 that the user can choose when to start writing by calling compute().
                 Default is False.
+            includeweights : bool, optional
+                Whether to save the weights in the npz file. Default is None, which saves the weights if the Cutflow was instantiated with weights
 
         Returns
         -------
@@ -1168,7 +1170,8 @@ class Cutflow:
             )
             print(stats)
 
-    def yieldhist(self, weighted=None):
+
+    def yieldhist(self, weighted=None, v2=False, categorical=None):
         """Returns the cutflow yields as ``hist.Hist`` objects
 
         Parameters
@@ -1188,9 +1191,18 @@ class Cutflow:
         """
         do_weighted = self._weighted if weighted is None else weighted
         labels = ["initial"] + list(self._names)
-
-        if not self._delayed_mode:
-            honecut = hist.Hist(hist.axis.Integer(0, len(labels), name="onecut"))
+        axes = [hist.axis.Integer(0, len(labels), name="onecut")]
+        if categorical is not None:
+            catax = categorical.get("axis")
+            catvar = categorical.get("values")
+            catlabels = categorical.get("labels")
+            axes.append(catax)
+        else:
+            catlabels = None
+        if do_weighted:
+            axes.append(hist.storage.Weight())
+        if not self._delayed_mode and not v2:
+            honecut = hist.Hist(*axes)
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
 
@@ -1202,9 +1214,25 @@ class Cutflow:
                 numpy.arange(len(labels), dtype=int),
                 weight=self._wgtevcutflow if do_weighted else self._nevcutflow,
             )
+        elif not self._delayed_mode and v2:
+            raise NotImplementedError("yieldhist is not implemented for non-delayed mode and v2")
+            honecut = hist.Hist(*axes)
+            hcutflow = honecut.copy()
+            hcutflow.axes.name = ("cutflow", *honecut.axes[1:].name)
+            fillvarsonecut = {"onecut": numpy.arange(len(labels), dtype=int),
+                              "weight": self._wgtevonecut if do_weighted else self._nevonecut}
+            fillvarscutflow = {"cutflow": numpy.arange(len(labels), dtype=int),
+                               "weight": self._wgtevonecut if do_weighted else self._nevonecut}
+            if categorical is not None:
+                updatevars = {categorical.get("axis").name: categorical.get("values")}
+                fillvarsonecut.update(updatevars)
+                fillvarscutflow.update(updatevars)
 
-        else:
-            honecut = hist.dask.Hist(hist.axis.Integer(0, len(labels), name="onecut"))
+            honecut.fill(**fillvars)
+            fillvars["weight"] = self._wgtevcutflow if do_weighted else self._nevcutflow
+            hcutflow.fill(numpy.arange(len(labels), dtype=int), weight=self._wgtevcutflow if do_weighted else self._nevcutflow)
+        elif self._delayed_mode and not v2:
+            honecut = hist.dask.Hist(*axes)
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
 
@@ -1241,8 +1269,30 @@ class Cutflow:
             hcutflow.fill(
                 dask_awkward.zeros_like(self._maskscutflow[0], dtype=int), weight=weight
             )
+        else:
+            honecut = hist.dask.Hist(*axes)
+            hcutflow = honecut.copy()
+            hcutflow.axes.name = ("cutflow", *honecut.axes[1:].name)
 
-        return honecut, hcutflow, labels
+            weight = self._weights.weight(self._weightsmodifier) if do_weighted else dask_awkward.ones_like(self._masksonecut[0], dtype=numpy.int32)
+            to_broadcastonecut = {"onecut": boolean_masks_to_categorical_integers(self._masksonecut, insert_unmasked_as_zeros=True)}
+            to_broadcastcutflow = {"cutflow": boolean_masks_to_categorical_integers(self._maskscutflow, insert_unmasked_as_zeros=True)}
+            if categorical is not None:
+                to_broadcastonecut[catax.name] = categorical.get("values")
+                to_broadcastcutflow[catax.name] = categorical.get("values")
+            to_broadcastonecut["weight"] = weight
+            to_broadcastcutflow["weight"] = weight
+            broadcastedonecut = zip(to_broadcastonecut.keys(), dask_awkward.broadcast_arrays(*to_broadcastonecut.values()))
+            broadcastedcutflow = zip(to_broadcastcutflow.keys(), dask_awkward.broadcast_arrays(*to_broadcastcutflow.values()))
+            onecutargs = {k: dask_awkward.flatten(arr, axis=None) for k, arr in broadcastedonecut}
+            cutflowargs = {k: dask_awkward.flatten(arr, axis=None) for k, arr in broadcastedcutflow}
+            honecut.fill(**onecutargs)
+            hcutflow.fill(**cutflowargs)
+
+        if categorical is not None:
+            return honecut, hcutflow, labels, catlabels
+        else:
+            return honecut, hcutflow, labels
 
     def plot_vars(
         self,
