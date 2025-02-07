@@ -20,6 +20,80 @@ from dask_awkward.utils import IncompatiblePartitions
 import coffea.processor
 import coffea.util
 
+def _generate_slices(array_length, max_elements=128):
+    """Generate slices to split an array into chunks of at most `max_elements` elements
+
+    Parameters
+    ----------
+    array_length : int
+        The length of the array to split
+    max_elements : int, optional
+        The maximum number of elements in each chunk. Default is 128.
+
+    Returns
+    -------
+    slices : list of slice objects
+        A list of slice objects to iterate over and split the array into chunks with at most `max_elements` elements per slice
+    """
+    slices = []
+    for start in range(0, array_length, max_elements):
+        end = min(start + max_elements, array_length)
+        slices.append(slice(start, end))
+    return slices
+
+def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False, return_mask=False):
+    """Converts a list of boolean masks to irregular arrays of enumerated categorical integers
+
+    Parameters
+    ----------
+    masks : list of boolean numpy.ndarray, awkward.Array or dask_awkward.lib.core.Array objects
+        The boolean mask arrays to convert to categorical integers
+    insert_unmasked_as_zeros : bool, optional
+        Whether to insert a zero entry representing an 'unmasked' state, equivalent to the first mask satisfying `ak.all(mask == True)`. Default is False.
+    return_mask : bool, optional
+        Whether to return the intermediate concatenated mask array instead of the ragged array of categorical integers. Default is False.
+
+    Returns
+    -------
+    irregular_categories : awkward.Array or dask_awkward.lib.core.Array containing integers representing whether an entry contained a True value in the corresponding mask
+
+        >>> pt = ak.Array([[1.1, 2.2, 3.3], [], [4.4, 5.5], [6.6]])
+        >>> at_least_one = (ak.num(pt, axis=1) >= 1)
+        >>> at_least_two = (ak.num(pt, axis=1) >= 2)
+        >>> at_least_three = (ak.num(pt, axis=1) >= 3)
+        >>> something_over_four = ak.any(pt > 4, axis=1)
+        >>> masks = [at_least_one, at_least_two, at_least_three, something_over_four]
+
+        >>> print(boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False, return_mask=False))
+        [[0, 1, 2], [], [0, 1, 3], [0, 3]]
+        >>> print(boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False, return_mask=True))
+        [[True, True, True, False], [False, ...], ..., [True, False, False, True]]
+        >>> print(boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=True, return_mask=False))
+        [[0, 1, 2, 3], [0], [0, 1, 2, 4], [0, 1, 4]]
+        >>> print(boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=True, return_mask=True))
+        [[True, True, True, True, False], [...], ..., [True, True, False, False, True]]
+    """
+    mask_inputs = [mask[:, None] for mask in masks]
+    if insert_unmasked_as_zeros:
+        mask_inputs.insert(0, awkward.ones_like(mask_inputs[0], dtype=bool))
+    irregular_masks = []
+    # TODO: _generate_slices is used to work around the issue addressed in awkward PR https://github.com/scikit-hep/awkward/pull/3312
+    # which was merged in awkward v2.7.2 (https://github.com/scikit-hep/awkward/releases/tag/v2.7.2) and this can be removed when it becomes the minimum version for coffea
+    for slice in _generate_slices(len(mask_inputs), max_elements=128):
+        # create subarrays of the masks to concatenate, to work around issue prior to awkward v2.7.2
+        irregular_masks.append(awkward.from_regular(awkward.concatenate(mask_inputs[slice], axis=1), axis=1))
+    if len(irregular_masks) == 1:
+        # unwrap the new concatenated (irregular) masks if there is only one
+        irregular_mask = irregular_masks[0]
+    else:
+        # if multiple irregular masks were created, concatenate them a final time
+        irregular_mask = awkward.concatenate(irregular_masks, axis=1)
+    if return_mask:
+        return irregular_mask
+    # convert the boolean masks to categorical integers by calling local index and remove elements whose mask entry was false
+    irregular_values = awkward.local_index(irregular_mask, axis=1)[irregular_mask]
+    return irregular_values
+
 
 class WeightStatistics:
     """
