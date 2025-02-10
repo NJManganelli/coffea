@@ -508,6 +508,14 @@ class NanoEventsFactory:
         if mode not in _allowed_modes:
             raise ValueError(f"Invalid mode {mode}, valid modes are {_allowed_modes}")
 
+        all_files = None
+        if isinstance(file, dict):
+            all_files = file.items()
+            file, filespec_treepath = next(iter(file.items()))
+            if filespec_treepath is not None:
+                warnings.warn(
+                f'For parquet file="{file}", treepath="{filespec_treepath}" is ignored when opening files'
+                )
         if (
             mode == "dask"
             and not isinstance(schemaclass, FunctionType)
@@ -533,6 +541,11 @@ class NanoEventsFactory:
                 f"{schemaclass} is not dask capable despite allowing dask, generating non-dask nanoevents"
             )
 
+        if all_files is not None and len(all_files) > 1:
+            raise NotImplementedError(
+                'NanoEventsFactory.from_parquet received more than one input file' \
+                f'in (eager/virtual mode). Filelist = {all_files}'
+            )
         if isinstance(file, ftypes):
             table_file = pyarrow.parquet.ParquetFile(file, **parquet_options)
         elif isinstance(file, str):
