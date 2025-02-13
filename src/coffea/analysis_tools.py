@@ -1458,132 +1458,32 @@ class Cutflow:
             if do_weighted:
                 constructor_args.append(hist.storage.Weight())
                 fill_args["weight"] = self._weights.weight(self._weightsmodifier)
-            else:
-                fill_args["weight"] = None
             honecut = Hist(*constructor_args)
             hcutflow = honecut.copy()
             hcutflow.axes.name = (name, "cutflow", *honecut.axes[2:].name)
 
-            ##weight = self._weights.weight(self._weightsmodifier) if do_weighted else dask_awkward.ones_like(self._masksonecut[0], dtype=numpy.int32)
-            ##to_broadcastonecut = {"onecut": boolean_masks_to_categorical_integers(self._masksonecut, insert_unmasked_as_zeros=True)}
-            ##to_broadcastcutflow = {"cutflow": boolean_masks_to_categorical_integers(self._maskscutflow, insert_unmasked_as_zeros=True)}
-            ##if categorical is not None:
-            ##    to_broadcastonecut[catax.name] = categorical.get("values")
-            ##    to_broadcastcutflow[catax.name] = categorical.get("values")
-            ##to_broadcastonecut["weight"] = weight
-            ##to_broadcastcutflow["weight"] = weight
-            ##broadcastedonecut = zip(to_broadcastonecut.keys(), dask_awkward.broadcast_arrays(*to_broadcastonecut.values()))
-            ##broadcastedcutflow = zip(to_broadcastcutflow.keys(), dask_awkward.broadcast_arrays(*to_broadcastcutflow.values()))
-            ##onecutargs = {k: dask_awkward.flatten(arr, axis=None) for k, arr in broadcastedonecut}
-            ##cutflowargs = {k: dask_awkward.flatten(arr, axis=None) for k, arr in broadcastedcutflow}
-            ##honecut.fill(**onecutargs)
-            ##hcutflow.fill(**cutflowargs)
-            #arr = ak_or_dak.flatten(var)
-            ###fill_args = zip(fill_args.keys(), ak_or_dak.broadcast_arrays(*fill_args.values()))
-            ###fill_args = {k: ak_or_dak.flatten(arr) for k, arr in fill_args}
-            #honecut.fill(**fill_args, ak_or_dak.zeros_like(var, dtype=int))
-            #hcutflow.fill(**fill_args, ak_or_dak.zeros_like(var, dtype=int))
-            #Nope, going to need to broadcast and flatten inside the loops... need to mask the categorical, weights, and var first
+            # initial fill is special, needs to have commonmask applied if it exists
+            to_fill_initial = {k: v[commonmask] for k, v in fill_args.items()} if self._commonmasked else fill_args
+            to_fill_initial = dict(zip(to_fill_initial.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_initial)]))
+            honecut.fill(onecut=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
 
-            #Outline: only call result() once, then broadcast together the var, masksonecut, maskscutflow, commonmask, weights, and categorical values
-            to_fill_initial = zip(fill_args.keys(), ak_or_dak.broadcast_arrays(*fill_args.values()))
             for i, mask in enumerate(self.result().masksonecut, 1):
-                arr = ak_or_dak.flatten(var[mask])
-                honecut.fill(arr, ak_or_dak.full_like(arr, i, dtype=int))
+                to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
+                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter)]))
+                honecut.fill(onecut=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
             histsonecut.append(honecut)
 
+            hcutflow.fill(cutflow=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
             for i, mask in enumerate(self.result().maskscutflow, 1):
-                arr = ak_or_dak.flatten(var[mask])
-                hcutflow.fill(arr, ak_or_dak.full_like(arr, i, dtype=int))
+                to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
+                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter)]))
+                hcutflow.fill(cutflow=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
             histscutflow.append(hcutflow)
 
         if categorical is not None:
             return histsonecut, histscutflow, labels, catlabels
         else:
             return histsonecut, histscutflow, labels
-
-
-        ### NEW
-        do_weighted = self._weighted if weighted is None else weighted
-        Hist = hist.dask.Hist if self._delayed_mode else hist.Hist
-        ak_or_dak = dask_awkward if self._delayed_mode else awkward
-        if self._delayed_mode:
-            for name, var in vars.items():
-                if not compatible_partitions(var, self._masksonecut[0]):
-                    raise IncompatiblePartitions("plot_vars", var, self._masksonecut[0])
-        else:
-            for name, var in vars.items():
-                if len(var) != len(self._masksonecut[0]):
-                    raise ValueError(
-                        f"The variable '{name}' has length '{len(var)}', but the masks have length '{len(self._masksonecut[0])}'"
-                    )
-
-        histsonecut, histscutflow = [], []
-        labels = ["initial"] + list(self._names)
-
-        bins = [None] * len(vars) if bins is None else bins
-        start = [None] * len(vars) if start is None else start
-        stop = [None] * len(vars) if stop is None else stop
-        edges = [None] * len(vars) if edges is None else edges
-        transform = [None] * len(vars) if transform is None else transform
-
-        if axes is not None:
-            axes = axes
-        else:
-            axes = []
-            for (name, var), b, s1, s2, e, t in zip(
-                vars.items(), bins, start, stop, edges, transform
-            ):
-                ax = coffea.util._gethistogramaxis(
-                    name, var, b, s1, s2, e, t, self._delayed_mode
-                )
-                axes.append(ax)
-
-        checklengths = [
-            len(x) == len(vars) for x in (axes, bins, start, stop, edges, transform)
-        ]
-        if not all(checklengths):
-            raise ValueError(
-                "vars, axes, bins, start, stop, edges, and transform must be the same length"
-            )
-
-        for (name, var), axis in zip(vars.items(), axes):
-            honecut = Hist(
-                axis,
-                hist.axis.Integer(0, len(labels), name="onecut"),
-            )
-            hcutflow = honecut.copy()
-            hcutflow.axes.name = name, "cutflow"
-
-            wgt = self._weights if do_weighted else None
-            honecut.fill_flattened(
-                var, ak_or_dak.zeros_like(var, dtype=int), weight=wgt
-            )
-            hcutflow.fill_flattened(
-                var, ak_or_dak.zeros_like(var, dtype=int), weight=wgt
-            )
-
-            for i, mask in enumerate(self.result().masksonecut, 1):
-                masked_var = var[mask]
-                masked_wgt = wgt[mask] if do_weighted else None
-                honecut.fill_flattened(
-                    masked_var,
-                    ak_or_dak.full_like(masked_var, i, dtype=int),
-                    weight=masked_wgt,
-                )
-            histsonecut.append(honecut)
-
-            for i, mask in enumerate(self.result().maskscutflow, 1):
-                masked_var = var[mask]
-                masked_wgt = wgt[mask] if do_weighted else None
-                hcutflow.fill_flattened(
-                    masked_var,
-                    ak_or_dak.full_like(masked_var, i, dtype=int),
-                    weight=masked_wgt,
-                )
-            histscutflow.append(hcutflow)
-
-        return histsonecut, histscutflow, labels
 
 
 class PackedSelection:
