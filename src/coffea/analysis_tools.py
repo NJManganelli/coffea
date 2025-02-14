@@ -699,11 +699,11 @@ class CutflowToNpz:
         )
         self._nevonecut = list(self._nevonecut)
         self._nevcutflow = list(self._nevcutflow)
+        self._masksonecut = list(self._masksonecut)
+        self._maskscutflow = list(self._maskscutflow)
         self._commonmask = list(self._commonmask) if self._commonmask is not None else None
         self._wgtevonecut = list(self._wgtevonecut) if self._wgtevonecut is not None else None
         self._wgtevcutflow = list(self._wgtevcutflow) if self._wgtevcutflow is not None else None
-        self._masksonecut = list(self._masksonecut) if self._masksonecut is not None else None
-        self._maskscutflow = list(self._maskscutflow) if self._maskscutflow is not None else None
         self._weights = list(self._weights) if self._weights is not None else None
         to_save = {
             "labels": self._labels,
