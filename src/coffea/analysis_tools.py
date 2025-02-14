@@ -623,7 +623,7 @@ class CutflowToNpz:
         self._commonmask = commonmask
         self._wgtevonecut = wgtevonecut
         self._wgtevcutflow = wgtevcutflow
-        self._weights = weights if includeweights else None
+        self._weights = weights if includeweights is not False else None
         self._weightsmodifier = weightsmodifier
         self._commonmasked = self.commonmask is not None
         self._weighted = (self._wgtevonecut is not None) and (
@@ -704,7 +704,7 @@ class CutflowToNpz:
         self._commonmask = list(self._commonmask) if self._commonmask is not None else None
         self._wgtevonecut = list(self._wgtevonecut) if self._wgtevonecut is not None else None
         self._wgtevcutflow = list(self._wgtevcutflow) if self._wgtevcutflow is not None else None
-        self._weights = list(self._weights) if self._weights is not None else None
+        self._weights = list(self._weights) if isinstance(self._weights, (tuple, list)) else self._weights
         to_save = {
             "labels": self._labels,
             "nevonecut": self._nevonecut,
@@ -717,9 +717,8 @@ class CutflowToNpz:
         if self._weighted:
             to_save["wgtevonecut"] = self._wgtevonecut
             to_save["wgtevcutflow"] = self._wgtevcutflow
-            to_save["weightsmodifier"] = self._weightsmodifier
         if self._weights is not None:
-            to_save["weights"]: self._weights
+            to_save["weights"] = self._weights.weight(self._weightsmodifier)
         self._saver(self._file, **to_save)
 
 
