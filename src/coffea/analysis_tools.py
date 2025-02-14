@@ -1869,10 +1869,14 @@ class PackedSelection:
             nevonecut.extend(numpy.sum(masksonecut, axis=1))
             nevcutflow.extend(numpy.sum(maskscutflow, axis=1))
             if weights is not None:
-                wgtevonecut = [len(self._data)]
-                wgtevcutflow = [len(self._data)]
-                wgtevonecut.extend(numpy.sum(weightsonecut, axis=1))
-                wgtevcutflow.extend(numpy.sum(weightscutflow, axis=1))
+                if commonmask is not None:
+                    wgtevonecut = [numpy.sum(weights.weight(weightsmodifier)[commonmask])]
+                    wgtevcutflow = [numpy.sum(weights.weight(weightsmodifier)[commonmask])]
+                else:
+                    wgtevonecut = [numpy.sum(weights.weight(weightsmodifier))]
+                    wgtevcutflow = [numpy.sum(weights.weight(weightsmodifier))]
+                wgtevonecut.extend([numpy.sum(wgt1) for wgt1 in weightsonecut])
+                wgtevcutflow.extend([numpy.sum(wgt2) for wgt2 in weightscutflow])
 
         else:
             nevonecut = [dask_awkward.sum(commonmask) if commonmask is not None else dask_awkward.count(self._data, axis=0)]
@@ -1880,8 +1884,12 @@ class PackedSelection:
             nevonecut.extend([dask_awkward.sum(mask1) for mask1 in masksonecut])
             nevcutflow.extend([dask_awkward.sum(mask2) for mask2 in maskscutflow])
             if weights is not None:
-                wgtevonecut = [dask_awkward.count(self._data, axis=0)]
-                wgtevcutflow = [dask_awkward.count(self._data, axis=0)]
+                if commonmask is not None:
+                    wgtevonecut = [dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])]
+                    wgtevcutflow = [dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])]
+                else:
+                    wgtevonecut = [dask_awkward.sum(weights.weight(weightsmodifier))]
+                    wgtevcutflow = [dask_awkward.sum(weights.weight(weightsmodifier))]
                 wgtevonecut.extend([dask_awkward.sum(wgt1) for wgt1 in weightsonecut])
                 wgtevcutflow.extend([dask_awkward.sum(wgt2) for wgt2 in weightscutflow])
 
