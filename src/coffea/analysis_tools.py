@@ -620,7 +620,7 @@ class CutflowToNpz:
         self._masksonecut = masksonecut
         self._maskscutflow = maskscutflow
         self._saver = saver
-        self.commonmask = commonmask
+        self._commonmask = commonmask
         self._wgtevonecut = wgtevonecut
         self._wgtevcutflow = wgtevcutflow
         self._weights = weights if includeweights else None
@@ -1355,6 +1355,7 @@ class Cutflow:
         edges=None,
         transform=None,
         weighted=None,
+        categorical=None,
     ):
         """Plot the histograms of variables for each step of the N-1 selection
 
@@ -1464,19 +1465,19 @@ class Cutflow:
 
             # initial fill is special, needs to have commonmask applied if it exists
             to_fill_initial = {k: v[commonmask] for k, v in fill_args.items()} if self._commonmasked else fill_args
-            to_fill_initial = dict(zip(to_fill_initial.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_initial)]))
+            to_fill_initial = dict(zip(to_fill_initial.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_initial.values())]))
             honecut.fill(onecut=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
 
             for i, mask in enumerate(self.result().masksonecut, 1):
                 to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
-                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter)]))
+                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter.values())]))
                 honecut.fill(onecut=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
             histsonecut.append(honecut)
 
             hcutflow.fill(cutflow=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
             for i, mask in enumerate(self.result().maskscutflow, 1):
                 to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
-                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter)]))
+                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter.values())]))
                 hcutflow.fill(cutflow=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
             histscutflow.append(hcutflow)
 
