@@ -762,22 +762,26 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
         len(events[nomuon & twoelectron & leadpt20]) if not commonmasked else len(events[nomuon & twoelectron & leadpt20 & commonmask]),
     ]
 
-    # FIXME: add weighted comparisons using the fact the weights are 0.5/1.0/1.25
+    if weighted:
+        if commonmasked:
+            assert np.isclose(r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier)[commonmask]))
+        else:
+            assert np.isclose(r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier)))
     truths = [nomuon, twoelectron, leadpt20]
     if commonmasked:
         truths = [truth & commonmask for truth in truths]
-    for i, (mask, truth) in enumerate(zip(masksonecut, truths)):
+    for i, (mask, truth) in enumerate(zip(masksonecut, truths), 1):
         assert np.all(mask == truth)
-        #if weighted:
-        #    assert np.isclose(r_wgtevonecut[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
+        if weighted:
+            assert np.isclose(r_wgtevonecut[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
 
     truths = [nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
     if commonmasked:
         truths = [truth & commonmask for truth in truths]
-    for i, (mask, truth) in enumerate(zip(maskscutflow, truths)):
+    for i, (mask, truth) in enumerate(zip(maskscutflow, truths), 1):
         assert np.all(mask == truth)
-        #if weighted:
-        #    assert np.isclose(r_wgtevcutflow[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
+        if weighted:
+            assert np.isclose(r_wgtevcutflow[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
 
     cutflow.to_npz("cutflow.npz", compressed=False, includeweights=False).compute()
     with np.load("cutflow.npz") as file:
@@ -813,7 +817,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
         if weighted:
             assert np.all(file["wgtevonecut"] == r_wgtevonecut)
             assert np.all(file["wgtevcutflow"] == r_wgtevcutflow)
-            assert np.all(file["weights"] == r_weights)
+            assert np.all(file["weights"] == r_weights.weight(r_weightsmodifier))
         else:
             assert "wgtevonecut" not in file
             assert "wgtevcutflow" not in file
@@ -834,7 +838,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
         if weighted:
             assert np.all(file["wgtevonecut"] == r_wgtevonecut)
             assert np.all(file["wgtevcutflow"] == r_wgtevcutflow)
-            assert np.all(file["weights"] == r_weights)
+            assert np.all(file["weights"] == r_weights.weight(r_weightsmodifier))
         else:
             assert "wgtevonecut" not in file
             assert "wgtevcutflow" not in file
