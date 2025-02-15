@@ -848,7 +848,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     honecut, hcutflow, hlabels = cutflow.yieldhist()
 
     assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
-    #FIXME: take care of commonmask and categorical and weighted comparisons here...
+
     assert np.all(honecut.axes["onecut"].edges == np.arange(0, 5))
     assert np.all(hcutflow.axes["cutflow"].edges == np.arange(0, 5))
 
@@ -863,27 +863,24 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
 
     assert hslabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
+    truths = [np.ones(40, dtype=bool), nomuon, twoelectron, leadpt20]
+    if commonmasked:
+        truths = [truth & commonmask for truth in truths]
     for h, array in zip(honecuts, [events.Electron.pt, events.Electron.phi]):
         edges = h.axes[0].edges
-        for i, truth in enumerate(
-            [np.ones(40, dtype=bool), nomuon, twoelectron, leadpt20]
-        ):
+        for i, truth in enumerate(truths):
             counts = h[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
             c, e = np.histogram(ak.flatten(array[truth]), bins=edges)
             assert np.all(np.isclose(counts[1:-1], c))
 
+    truths = [np.ones(40, dtype=bool), nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
+    if commonmasked:
+        truths = [truth & commonmask for truth in truths]
     for h, array in zip(hcutflows, [events.Electron.pt, events.Electron.phi]):
         edges = h.axes[0].edges
-        for i, truth in enumerate(
-            [
-                np.ones(40, dtype=bool),
-                nomuon,
-                nomuon & twoelectron,
-                nomuon & twoelectron & leadpt20,
-            ]
-        ):
+        for i, truth in enumerate(truths):
             counts = h[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
