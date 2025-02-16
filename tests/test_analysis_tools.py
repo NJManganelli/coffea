@@ -686,11 +686,10 @@ def test_packed_selection_cutflow():
             assert np.all(np.isclose(counts[1:-1], c))
 
 
-#@pytest.mark.parametrize("withcategorical", [True, False])
-
 @pytest.mark.parametrize("weighted", [True, False])
 @pytest.mark.parametrize("commonmasked", [True, False])
-def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategorical=False):
+@pytest.mark.parametrize("withcategorical", [True, False])
+def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategorical):
     
     import awkward as ak
 
@@ -737,7 +736,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
                                 "leadPt20", 
                                 commonmask=commonmask if commonmasked else None,
                                 weights=weight if weighted else None,
-                                weightsmodifier=None
+                                weightsmodifier="testUp" if weighted else None,
                                 )
 
     labels, nevonecut, nevcutflow, masksonecut, maskscutflow, *packed = cutflow.result()
@@ -845,15 +844,19 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             assert "weights" not in file
     os.remove("cutflow.npz")
 
-    honecut, hcutflow, hlabels = cutflow.yieldhist()
+    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted)
 
     assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
     assert np.all(honecut.axes["onecut"].edges == np.arange(0, 5))
     assert np.all(hcutflow.axes["cutflow"].edges == np.arange(0, 5))
 
-    assert np.all(honecut.counts() == nevonecut)
-    assert np.all(hcutflow.counts() == nevcutflow)
+    if weighted:
+        assert np.all(honecut.counts() == r_wgtevonecut)
+        assert np.all(hcutflow.counts() == r_wgtevcutflow)
+    else:
+        assert np.all(honecut.counts() == nevonecut)
+        assert np.all(hcutflow.counts() == nevcutflow)
 
     with pytest.raises(ValueError):
         cutflow.plot_vars({"Ept": events.Electron.pt, "Ephi": events.Electron.phi[:20]})
@@ -872,7 +875,8 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             counts = h[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
-            c, e = np.histogram(ak.flatten(array[truth]), bins=edges)
+            fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
+            c, e = np.histogram(ak.flatten(fill_array), bins=edges, weights=ak.flatten(fill_weights) if weighted else None)
             assert np.all(np.isclose(counts[1:-1], c))
 
     truths = [np.ones(40, dtype=bool), nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
@@ -884,7 +888,8 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             counts = h[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
-            c, e = np.histogram(ak.flatten(array[truth]), bins=edges)
+            fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
+            c, e = np.histogram(ak.flatten(fill_array), bins=edges, weights=ak.flatten(fill_weights) if weighted else None)
             assert np.all(np.isclose(counts[1:-1], c))
 
 @pytest.mark.parametrize("optimization_enabled", [True, False])
