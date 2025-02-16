@@ -844,7 +844,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             assert "weights" not in file
     os.remove("cutflow.npz")
 
-    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted)
+    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted, v2=True)#, categorical=categorical if withcategorical else None)
 
     assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
@@ -852,11 +852,11 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     assert np.all(hcutflow.axes["cutflow"].edges == np.arange(0, 5))
 
     if weighted:
-        assert np.all(honecut.counts() == r_wgtevonecut)
-        assert np.all(hcutflow.counts() == r_wgtevcutflow)
+        assert np.all(honecut.project("onecut").counts() == r_wgtevonecut)
+        assert np.all(hcutflow.project("cutflow").counts() == r_wgtevcutflow)
     else:
-        assert np.all(honecut.counts() == nevonecut)
-        assert np.all(hcutflow.counts() == nevcutflow)
+        assert np.all(honecut.project("onecut").counts() == nevonecut)
+        assert np.all(hcutflow.project("cutflow").counts() == nevcutflow)
 
     with pytest.raises(ValueError):
         cutflow.plot_vars({"Ept": events.Electron.pt, "Ephi": events.Electron.phi[:20]})
