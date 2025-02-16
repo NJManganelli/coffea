@@ -81,7 +81,7 @@ def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False,
     if insert_unmasked_as_zeros:
         mask_inputs.insert(0, awkward.ones_like(mask_inputs[0], dtype=bool))
     if insert_commonmask_as_zeros is not None:
-        mask_inputs.insert(0, insert_commonmask_as_zeros)
+        mask_inputs.insert(0, insert_commonmask_as_zeros[:, None])
     irregular_masks = []
     # TODO: _generate_slices is used to work around the issue addressed in awkward PR https://github.com/scikit-hep/awkward/pull/3312
     # which was merged in awkward v2.7.2 (https://github.com/scikit-hep/awkward/releases/tag/v2.7.2) and this can be removed when it becomes the minimum version for coffea
@@ -1241,7 +1241,7 @@ class Cutflow:
         print("Cutflow yieldhist should work for categorical")
         do_weighted = self._weighted if weighted is None else weighted
         Hist = hist.Hist if not self._delayed_mode else hist.dask.Hist
-        ak_or_dak = dask_awkward if self._delayed_mode else awkward
+        ak_or_dak = awkward if not self._delayed_mode else dask_awkward
         labels = ["initial"] + list(self._names)
         axes = [hist.axis.Integer(0, len(labels), name="onecut")]
         if categorical is not None:
@@ -1330,11 +1330,11 @@ class Cutflow:
             )
         else:
             assert v2
-            honecut = hist.dask.Hist(*axes)
+            honecut = Hist(*axes)
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow", *honecut.axes[1:].name)
 
-            weight = self._weights.weight(self._weightsmodifier) if do_weighted else ak_or_dak.ones_like(self._masksonecut[0], dtype=numpy.int32)
+            weight = self._weights.weight(self._weightsmodifier) if do_weighted else ak_or_dak.ones_like(self._masksonecut[0], dtype=numpy.float32)
             print("To insert commonmask here will be annoying... it needs to modify the unmasked_as_zeros")
             if self._commonmasked:
                 to_broadcastonecut = {"onecut": boolean_masks_to_categorical_integers(self._masksonecut, insert_commonmask_as_zeros=self._commonmask)}
