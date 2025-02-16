@@ -870,11 +870,15 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
 
     with pytest.raises(ValueError):
         cutflow.plot_vars({"Ept": events.Electron.pt, "Ephi": events.Electron.phi[:20]})
-    honecuts, hcutflows, hslabels = cutflow.plot_vars(
-        {"ept": events.Electron.pt, "ephi": events.Electron.phi}
+    honecuts, hcutflows, hslabels, *catlabels = cutflow.plot_vars(
+        {"ept": events.Electron.pt, "ephi": events.Electron.phi},
+        weighted=weighted,
+        categorical=categorical if withcategorical else None,
     )
 
     assert hslabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
+    if withcategorical:
+        assert catlabels[0] == ["0", "41", "43"]
 
     truths = [np.ones(40, dtype=bool), nomuon, twoelectron, leadpt20]
     if commonmasked:
@@ -882,7 +886,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     for h, array in zip(honecuts, [events.Electron.pt, events.Electron.phi]):
         edges = h.axes[0].edges
         for i, truth in enumerate(truths):
-            counts = h[:, i].counts(flow=True)
+            counts = h.project(h.axes.name[0], "onecut")[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
             fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
@@ -895,7 +899,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     for h, array in zip(hcutflows, [events.Electron.pt, events.Electron.phi]):
         edges = h.axes[0].edges
         for i, truth in enumerate(truths):
-            counts = h[:, i].counts(flow=True)
+            counts = h.project(h.axes.name[0], "cutflow")[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
             fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
