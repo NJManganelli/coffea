@@ -718,7 +718,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     commonmask = (ak.num(events.Electron) >= 1) & (ak.num(events.Muon) <= 1)
 
     categorical = {
-        "axis": hist.axis.IntCategory([0, 41, 43], growth=False, flow=False),
+        "axis": hist.axis.IntCategory([0, 41, 43], name="genTtbarId", growth=False, flow=False),
         "values": events.genTtbarId,
         "labels": ["0", "41", "43"],
     }
@@ -843,20 +843,30 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             assert "wgtevcutflow" not in file
             assert "weights" not in file
     os.remove("cutflow.npz")
-
-    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted, v2=True)#, categorical=categorical if withcategorical else None)
+    #FIXME: make v2 default/only option
+    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted, v2=True, categorical=categorical if withcategorical else None)
 
     assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
     assert np.all(honecut.axes["onecut"].edges == np.arange(0, 5))
     assert np.all(hcutflow.axes["cutflow"].edges == np.arange(0, 5))
+    if withcategorical:
+        assert np.all(honecut.axes["genTtbarId"].edges == np.array([0, 1, 2, 3]))
+        assert np.all(hcutflow.axes["genTtbarId"].edges == np.array([0, 1, 2, 3]))
 
+    firstentry = 36 if not commonmasked else 15
     if weighted:
         assert np.all(honecut.project("onecut").counts() == r_wgtevonecut)
         assert np.all(hcutflow.project("cutflow").counts() == r_wgtevcutflow)
+        if withcategorical:
+            assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstentry, 3, 1])))
+            assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstentry, 3, 1])))
     else:
         assert np.all(honecut.project("onecut").counts() == nevonecut)
         assert np.all(hcutflow.project("cutflow").counts() == nevcutflow)
+        if withcategorical:
+            assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), np.array([firstentry, 3, 1])))
+            assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), np.array([firstentry, 3, 1])))
 
     with pytest.raises(ValueError):
         cutflow.plot_vars({"Ept": events.Electron.pt, "Ephi": events.Electron.phi[:20]})
