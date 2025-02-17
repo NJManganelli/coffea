@@ -1,9 +1,9 @@
 import os
 
+import hist
 import numpy as np
 import pytest
 import uproot
-import hist
 from dummy_distributions import dummy_jagged_eta_pt
 
 from coffea.nanoevents import NanoAODSchema, NanoEventsFactory
@@ -690,11 +690,10 @@ def test_packed_selection_cutflow():
 @pytest.mark.parametrize("commonmasked", [True, False])
 @pytest.mark.parametrize("withcategorical", [True, False])
 def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategorical):
-    
+
     import awkward as ak
 
-    from coffea.analysis_tools import PackedSelection
-    from coffea.analysis_tools import Weights
+    from coffea.analysis_tools import PackedSelection, Weights
 
     events = eagerevents
 
@@ -718,61 +717,99 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     commonmask = (ak.num(events.Electron) >= 1) & (ak.num(events.Muon) <= 1)
 
     categorical = {
-        "axis": hist.axis.IntCategory([0, 41, 43], name="genTtbarId", growth=False, flow=False),
+        "axis": hist.axis.IntCategory(
+            [0, 41, 43], name="genTtbarId", growth=False, flow=False
+        ),
         "values": events.genTtbarId,
         "labels": ["0", "41", "43"],
     }
-    
+
     weight = Weights(len(events))
-    weight.add("test", ak.ones_like(events.genWeight), weightUp=1.25 * ak.ones_like(events.genWeight), weightDown=0.5 * ak.ones_like(events.genWeight))
+    weight.add(
+        "test",
+        ak.ones_like(events.genWeight),
+        weightUp=1.25 * ak.ones_like(events.genWeight),
+        weightDown=0.5 * ak.ones_like(events.genWeight),
+    )
 
     with pytest.raises(
         ValueError,
         match="All arguments must be strings that refer to the names of existing selections",
     ):
         selection.cutflow("twoElectron", "nonexistent")
-    cutflow = selection.cutflow("noMuon", 
-                                "twoElectron", 
-                                "leadPt20", 
-                                commonmask=commonmask if commonmasked else None,
-                                weights=weight if weighted else None,
-                                weightsmodifier="testUp" if weighted else None,
-                                )
+    cutflow = selection.cutflow(
+        "noMuon",
+        "twoElectron",
+        "leadPt20",
+        commonmask=commonmask if commonmasked else None,
+        weights=weight if weighted else None,
+        weightsmodifier="testUp" if weighted else None,
+    )
 
     labels, nevonecut, nevcutflow, masksonecut, maskscutflow, *packed = cutflow.result()
 
     if commonmasked or weighted:
-        r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = packed
+        r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = (
+            packed
+        )
     else:
-        r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = None, None, None, None, None
+        r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
     assert labels == ["initial", "noMuon", "twoElectron", "leadPt20"]
     assert nevonecut == [
         len(events) if not commonmasked else len(events[commonmask]),
         len(events[nomuon]) if not commonmasked else len(events[nomuon & commonmask]),
-        len(events[twoelectron]) if not commonmasked else len(events[twoelectron & commonmask]),
-        len(events[leadpt20]) if not commonmasked else len(events[leadpt20 & commonmask]),
+        (
+            len(events[twoelectron])
+            if not commonmasked
+            else len(events[twoelectron & commonmask])
+        ),
+        (
+            len(events[leadpt20])
+            if not commonmasked
+            else len(events[leadpt20 & commonmask])
+        ),
     ]
 
     assert nevcutflow == [
         len(events) if not commonmasked else len(events[commonmask]),
         len(events[nomuon]) if not commonmasked else len(events[nomuon & commonmask]),
-        len(events[nomuon & twoelectron]) if not commonmasked else len(events[nomuon & twoelectron & commonmask]),
-        len(events[nomuon & twoelectron & leadpt20]) if not commonmasked else len(events[nomuon & twoelectron & leadpt20 & commonmask]),
+        (
+            len(events[nomuon & twoelectron])
+            if not commonmasked
+            else len(events[nomuon & twoelectron & commonmask])
+        ),
+        (
+            len(events[nomuon & twoelectron & leadpt20])
+            if not commonmasked
+            else len(events[nomuon & twoelectron & leadpt20 & commonmask])
+        ),
     ]
 
     if weighted:
         if commonmasked:
-            assert np.isclose(r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier)[commonmask]))
+            assert np.isclose(
+                r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier)[commonmask])
+            )
         else:
-            assert np.isclose(r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier)))
+            assert np.isclose(
+                r_wgtevcutflow[0], np.sum(weight.weight(r_weightsmodifier))
+            )
     truths = [nomuon, twoelectron, leadpt20]
     if commonmasked:
         truths = [truth & commonmask for truth in truths]
     for i, (mask, truth) in enumerate(zip(masksonecut, truths), 1):
         assert np.all(mask == truth)
         if weighted:
-            assert np.isclose(r_wgtevonecut[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
+            assert np.isclose(
+                r_wgtevonecut[i], np.sum(weight.weight(r_weightsmodifier)[truth])
+            )
 
     truths = [nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
     if commonmasked:
@@ -780,7 +817,9 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
     for i, (mask, truth) in enumerate(zip(maskscutflow, truths), 1):
         assert np.all(mask == truth)
         if weighted:
-            assert np.isclose(r_wgtevcutflow[i], np.sum(weight.weight(r_weightsmodifier)[truth]))
+            assert np.isclose(
+                r_wgtevcutflow[i], np.sum(weight.weight(r_weightsmodifier)[truth])
+            )
 
     cutflow.to_npz("cutflow.npz", compressed=False, includeweights=False).compute()
     with np.load("cutflow.npz") as file:
@@ -823,7 +862,7 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             assert "weights" not in file
     os.remove("cutflow.npz")
 
-    cutflow.to_npz(f"cutflow.npz", compressed=True, includeweights=True).compute()
+    cutflow.to_npz("cutflow.npz", compressed=True, includeweights=True).compute()
     with np.load("cutflow.npz") as file:
         assert np.all(file["labels"] == labels)
         assert np.all(file["nevonecut"] == nevonecut)
@@ -843,8 +882,10 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             assert "wgtevcutflow" not in file
             assert "weights" not in file
     os.remove("cutflow.npz")
-    #FIXME: make v2 default/only option
-    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(weighted=weighted, v2=True, categorical=categorical if withcategorical else None)
+    # FIXME: make v2 default/only option
+    honecut, hcutflow, hlabels, *optional = cutflow.yieldhist(
+        weighted=weighted, v2=True, categorical=categorical if withcategorical else None
+    )
 
     assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
@@ -859,14 +900,34 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
         assert np.all(honecut.project("onecut").counts() == r_wgtevonecut)
         assert np.all(hcutflow.project("cutflow").counts() == r_wgtevcutflow)
         if withcategorical:
-            assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstcatentry, 3, 1])))
-            assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstcatentry, 3, 1])))
+            assert np.all(
+                np.isclose(
+                    honecut[0, :].project("genTtbarId").counts(),
+                    1.25 * np.array([firstcatentry, 3, 1]),
+                )
+            )
+            assert np.all(
+                np.isclose(
+                    hcutflow[0, :].project("genTtbarId").counts(),
+                    1.25 * np.array([firstcatentry, 3, 1]),
+                )
+            )
     else:
         assert np.all(honecut.project("onecut").counts() == nevonecut)
         assert np.all(hcutflow.project("cutflow").counts() == nevcutflow)
         if withcategorical:
-            assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), np.array([firstcatentry, 3, 1])))
-            assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), np.array([firstcatentry, 3, 1])))
+            assert np.all(
+                np.isclose(
+                    honecut[0, :].project("genTtbarId").counts(),
+                    np.array([firstcatentry, 3, 1]),
+                )
+            )
+            assert np.all(
+                np.isclose(
+                    hcutflow[0, :].project("genTtbarId").counts(),
+                    np.array([firstcatentry, 3, 1]),
+                )
+            )
 
     with pytest.raises(ValueError):
         cutflow.plot_vars({"Ept": events.Electron.pt, "Ephi": events.Electron.phi[:20]})
@@ -889,11 +950,22 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             counts = h.project(h.axes.name[0], "onecut")[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
-            fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
-            c, e = np.histogram(ak.flatten(fill_array), bins=edges, weights=ak.flatten(fill_weights) if weighted else None)
+            fill_array, fill_weights = ak.broadcast_arrays(
+                array[truth], weight.weight(r_weightsmodifier)[truth]
+            )
+            c, e = np.histogram(
+                ak.flatten(fill_array),
+                bins=edges,
+                weights=ak.flatten(fill_weights) if weighted else None,
+            )
             assert np.all(np.isclose(counts[1:-1], c))
 
-    truths = [np.ones(40, dtype=bool), nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
+    truths = [
+        np.ones(40, dtype=bool),
+        nomuon,
+        nomuon & twoelectron,
+        nomuon & twoelectron & leadpt20,
+    ]
     if commonmasked:
         truths = [truth & commonmask for truth in truths]
     for h, array in zip(hcutflows, [events.Electron.pt, events.Electron.phi]):
@@ -902,9 +974,16 @@ def test_packed_selection_cutflow_extended(weighted, commonmasked, withcategoric
             counts = h.project(h.axes.name[0], "cutflow")[:, i].counts(flow=True)
             counts[1] += counts[0]
             counts[-2] += counts[-1]
-            fill_array, fill_weights = ak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
-            c, e = np.histogram(ak.flatten(fill_array), bins=edges, weights=ak.flatten(fill_weights) if weighted else None)
+            fill_array, fill_weights = ak.broadcast_arrays(
+                array[truth], weight.weight(r_weightsmodifier)[truth]
+            )
+            c, e = np.histogram(
+                ak.flatten(fill_array),
+                bins=edges,
+                weights=ak.flatten(fill_weights) if weighted else None,
+            )
             assert np.all(np.isclose(counts[1:-1], c))
+
 
 @pytest.mark.parametrize("optimization_enabled", [True, False])
 @pytest.mark.parametrize("dtype", ["uint16", "uint32", "uint64"])
@@ -1277,17 +1356,19 @@ def test_packed_selection_cutflow_dak(optimization_enabled):
                 c, e = np.histogram(dak.flatten(array[truth]).compute(), bins=edges)
                 assert np.all(np.isclose(counts[1:-1], c))
 
+
 @pytest.mark.parametrize("optimization_enabled", [True, False])
 @pytest.mark.parametrize("weighted", [True, False])
 @pytest.mark.parametrize("commonmasked", [True, False])
 @pytest.mark.parametrize("withcategorical", [True, False])
-def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, commonmasked, withcategorical):
+def test_packed_selection_cutflow_extended_dak(
+    optimization_enabled, weighted, commonmasked, withcategorical
+):
 
     import dask
     import dask_awkward as dak
 
-    from coffea.analysis_tools import PackedSelection
-    from coffea.analysis_tools import Weights
+    from coffea.analysis_tools import PackedSelection, Weights
 
     events = dakevents
 
@@ -1312,61 +1393,130 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
         commonmask = (dak.num(events.Electron) >= 1) & (dak.num(events.Muon) <= 1)
 
         categorical = {
-            "axis": hist.axis.IntCategory([0, 41, 43], name="genTtbarId", growth=False, flow=False),
+            "axis": hist.axis.IntCategory(
+                [0, 41, 43], name="genTtbarId", growth=False, flow=False
+            ),
             "values": events.genTtbarId,
             "labels": ["0", "41", "43"],
         }
 
         weight = Weights(None)
-        weight.add("test", dak.ones_like(events.genWeight), weightUp=1.25 * dak.ones_like(events.genWeight), weightDown=0.5 * dak.ones_like(events.genWeight))
+        weight.add(
+            "test",
+            dak.ones_like(events.genWeight),
+            weightUp=1.25 * dak.ones_like(events.genWeight),
+            weightDown=0.5 * dak.ones_like(events.genWeight),
+        )
 
         with pytest.raises(
             ValueError,
             match="All arguments must be strings that refer to the names of existing selections",
         ):
             selection.cutflow("twoElectron", "nonexistent")
-        cutflow = selection.cutflow("noMuon",
-                                    "twoElectron",
-                                    "leadPt20",
-                                    commonmask=commonmask if commonmasked else None,
-                                    weights=weight if weighted else None,
-                                    weightsmodifier="testUp" if weighted else None,
-                                    )
+        cutflow = selection.cutflow(
+            "noMuon",
+            "twoElectron",
+            "leadPt20",
+            commonmask=commonmask if commonmasked else None,
+            weights=weight if weighted else None,
+            weightsmodifier="testUp" if weighted else None,
+        )
 
-        labels, nevonecut, nevcutflow, masksonecut, maskscutflow, *packed = cutflow.result()
+        labels, nevonecut, nevcutflow, masksonecut, maskscutflow, *packed = (
+            cutflow.result()
+        )
 
         if commonmasked or weighted:
-            r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = packed
+            (
+                r_commonmask,
+                r_wgtevonecut,
+                r_wgtevcutflow,
+                r_weights,
+                r_weightsmodifier,
+            ) = packed
         else:
-            r_commonmask, r_wgtevonecut, r_wgtevcutflow, r_weights, r_weightsmodifier = None, None, None, None, None
+            (
+                r_commonmask,
+                r_wgtevonecut,
+                r_wgtevcutflow,
+                r_weights,
+                r_weightsmodifier,
+            ) = (None, None, None, None, None)
 
         assert labels == ["initial", "noMuon", "twoElectron", "leadPt20"]
-        assert dask.compute(*nevonecut) == dask.compute(*[
-            dak.num(events, axis=0) if not commonmasked else dak.num(events[commonmask], axis=0),
-            dak.num(events[nomuon], axis=0) if not commonmasked else dak.num(events[nomuon & commonmask], axis=0),
-            dak.num(events[twoelectron], axis=0) if not commonmasked else dak.num(events[twoelectron & commonmask], axis=0),
-            dak.num(events[leadpt20], axis=0) if not commonmasked else dak.num(events[leadpt20 & commonmask], axis=0),
-        ])
+        assert dask.compute(*nevonecut) == dask.compute(
+            *[
+                (
+                    dak.num(events, axis=0)
+                    if not commonmasked
+                    else dak.num(events[commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[nomuon], axis=0)
+                    if not commonmasked
+                    else dak.num(events[nomuon & commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[twoelectron], axis=0)
+                    if not commonmasked
+                    else dak.num(events[twoelectron & commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[leadpt20], axis=0)
+                    if not commonmasked
+                    else dak.num(events[leadpt20 & commonmask], axis=0)
+                ),
+            ]
+        )
 
-        assert dask.compute(*nevcutflow) == dask.compute(*[
-            dak.num(events, axis=0) if not commonmasked else dak.num(events[commonmask], axis=0),
-            dak.num(events[nomuon], axis=0) if not commonmasked else dak.num(events[nomuon & commonmask], axis=0),
-            dak.num(events[nomuon & twoelectron], axis=0) if not commonmasked else dak.num(events[nomuon & twoelectron & commonmask], axis=0),
-            dak.num(events[nomuon & twoelectron & leadpt20], axis=0) if not commonmasked else dak.num(events[nomuon & twoelectron & leadpt20 & commonmask], axis=0),
-        ])
+        assert dask.compute(*nevcutflow) == dask.compute(
+            *[
+                (
+                    dak.num(events, axis=0)
+                    if not commonmasked
+                    else dak.num(events[commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[nomuon], axis=0)
+                    if not commonmasked
+                    else dak.num(events[nomuon & commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[nomuon & twoelectron], axis=0)
+                    if not commonmasked
+                    else dak.num(events[nomuon & twoelectron & commonmask], axis=0)
+                ),
+                (
+                    dak.num(events[nomuon & twoelectron & leadpt20], axis=0)
+                    if not commonmasked
+                    else dak.num(
+                        events[nomuon & twoelectron & leadpt20 & commonmask], axis=0
+                    )
+                ),
+            ]
+        )
 
         if weighted:
             if commonmasked:
-                assert np.isclose(r_wgtevcutflow[0].compute(), dak.sum(weight.weight(r_weightsmodifier)[commonmask]).compute())
+                assert np.isclose(
+                    r_wgtevcutflow[0].compute(),
+                    dak.sum(weight.weight(r_weightsmodifier)[commonmask]).compute(),
+                )
             else:
-                assert np.isclose(r_wgtevcutflow[0].compute(), dak.sum(weight.weight(r_weightsmodifier)).compute())
+                assert np.isclose(
+                    r_wgtevcutflow[0].compute(),
+                    dak.sum(weight.weight(r_weightsmodifier)).compute(),
+                )
         truths = [nomuon, twoelectron, leadpt20]
         if commonmasked:
             truths = [truth & commonmask for truth in truths]
         for i, (mask, truth) in enumerate(zip(masksonecut, truths), 1):
             assert dak.all(mask == truth).compute()
             if weighted:
-                assert np.isclose(r_wgtevonecut[i].compute(), dak.sum(weight.weight(r_weightsmodifier)[truth]).compute())
+                assert np.isclose(
+                    r_wgtevonecut[i].compute(),
+                    dak.sum(weight.weight(r_weightsmodifier)[truth]).compute(),
+                )
 
         truths = [nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
         if commonmasked:
@@ -1374,7 +1524,10 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
         for i, (mask, truth) in enumerate(zip(maskscutflow, truths), 1):
             assert dak.all(mask == truth).compute()
             if weighted:
-                assert np.isclose(r_wgtevcutflow[i].compute(), dak.sum(weight.weight(r_weightsmodifier)[truth]).compute())
+                assert np.isclose(
+                    r_wgtevcutflow[i].compute(),
+                    dak.sum(weight.weight(r_weightsmodifier)[truth]).compute(),
+                )
 
         cutflow.to_npz("cutflow.npz", compressed=False, includeweights=False).compute()
         with np.load("cutflow.npz") as file:
@@ -1389,7 +1542,9 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
                 assert "commonmask" not in file
             if weighted:
                 assert np.all(file["wgtevonecut"] == list(dask.compute(*r_wgtevonecut)))
-                assert np.all(file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow)))
+                assert np.all(
+                    file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow))
+                )
             else:
                 assert "wgtevonecut" not in file
                 assert "wgtevcutflow" not in file
@@ -1409,15 +1564,19 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
                 assert "commonmask" not in file
             if weighted:
                 assert np.all(file["wgtevonecut"] == list(dask.compute(*r_wgtevonecut)))
-                assert np.all(file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow)))
-                assert np.all(file["weights"] == r_weights.weight(r_weightsmodifier).compute())
+                assert np.all(
+                    file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow))
+                )
+                assert np.all(
+                    file["weights"] == r_weights.weight(r_weightsmodifier).compute()
+                )
             else:
                 assert "wgtevonecut" not in file
                 assert "wgtevcutflow" not in file
                 assert "weights" not in file
         os.remove("cutflow.npz")
 
-        cutflow.to_npz(f"cutflow.npz", compressed=True, includeweights=True).compute()
+        cutflow.to_npz("cutflow.npz", compressed=True, includeweights=True).compute()
         with np.load("cutflow.npz") as file:
             assert np.all(file["labels"] == labels)
             assert np.all(file["nevonecut"] == list(dask.compute(*nevonecut)))
@@ -1430,15 +1589,25 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
                 assert "commonmask" not in file
             if weighted:
                 assert np.all(file["wgtevonecut"] == list(dask.compute(*r_wgtevonecut)))
-                assert np.all(file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow)))
-                assert np.all(file["weights"] == r_weights.weight(r_weightsmodifier).compute())
+                assert np.all(
+                    file["wgtevcutflow"] == list(dask.compute(*r_wgtevcutflow))
+                )
+                assert np.all(
+                    file["weights"] == r_weights.weight(r_weightsmodifier).compute()
+                )
             else:
                 assert "wgtevonecut" not in file
                 assert "wgtevcutflow" not in file
                 assert "weights" not in file
         os.remove("cutflow.npz")
-        #FIXME: make v2 default/only option
-        honecut, hcutflow, hlabels, *optional = dask.compute(*cutflow.yieldhist(weighted=weighted, v2=True, categorical=categorical if withcategorical else None))
+        # FIXME: make v2 default/only option
+        honecut, hcutflow, hlabels, *optional = dask.compute(
+            *cutflow.yieldhist(
+                weighted=weighted,
+                v2=True,
+                categorical=categorical if withcategorical else None,
+            )
+        )
 
         assert hlabels == ["initial", "noMuon", "twoElectron", "leadPt20"]
 
@@ -1453,19 +1622,40 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
             assert np.all(honecut.project("onecut").counts() == r_wgtevonecut)
             assert np.all(hcutflow.project("cutflow").counts() == r_wgtevcutflow)
             if withcategorical:
-                assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstcatentry, 3, 1])))
-                assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), 1.25 * np.array([firstcatentry, 3, 1])))
+                assert np.all(
+                    np.isclose(
+                        honecut[0, :].project("genTtbarId").counts(),
+                        1.25 * np.array([firstcatentry, 3, 1]),
+                    )
+                )
+                assert np.all(
+                    np.isclose(
+                        hcutflow[0, :].project("genTtbarId").counts(),
+                        1.25 * np.array([firstcatentry, 3, 1]),
+                    )
+                )
         else:
             assert np.all(honecut.project("onecut").counts() == nevonecut)
             assert np.all(hcutflow.project("cutflow").counts() == nevcutflow)
             if withcategorical:
-                assert np.all(np.isclose(honecut[0, :].project("genTtbarId").counts(), np.array([firstcatentry, 3, 1])))
-                assert np.all(np.isclose(hcutflow[0, :].project("genTtbarId").counts(), np.array([firstcatentry, 3, 1])))
+                assert np.all(
+                    np.isclose(
+                        honecut[0, :].project("genTtbarId").counts(),
+                        np.array([firstcatentry, 3, 1]),
+                    )
+                )
+                assert np.all(
+                    np.isclose(
+                        hcutflow[0, :].project("genTtbarId").counts(),
+                        np.array([firstcatentry, 3, 1]),
+                    )
+                )
 
-        honecuts, hcutflows, hslabels, *catlabels = dask.compute(*cutflow.plot_vars(
-            {"ept": events.Electron.pt, "ephi": events.Electron.phi},
-            weighted=weighted,
-            categorical=categorical if withcategorical else None,
+        honecuts, hcutflows, hslabels, *catlabels = dask.compute(
+            *cutflow.plot_vars(
+                {"ept": events.Electron.pt, "ephi": events.Electron.phi},
+                weighted=weighted,
+                categorical=categorical if withcategorical else None,
             )
         )
 
@@ -1482,11 +1672,22 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
                 counts = h.project(h.axes.name[0], "onecut")[:, i].counts(flow=True)
                 counts[1] += counts[0]
                 counts[-2] += counts[-1]
-                fill_array, fill_weights = dak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
-                c, e = np.histogram(dak.flatten(fill_array).compute(), bins=edges, weights=dak.flatten(fill_weights).compute() if weighted else None)
+                fill_array, fill_weights = dak.broadcast_arrays(
+                    array[truth], weight.weight(r_weightsmodifier)[truth]
+                )
+                c, e = np.histogram(
+                    dak.flatten(fill_array).compute(),
+                    bins=edges,
+                    weights=dak.flatten(fill_weights).compute() if weighted else None,
+                )
                 assert np.all(np.isclose(counts[1:-1], c))
 
-        truths = [np.ones(40, dtype=bool), nomuon, nomuon & twoelectron, nomuon & twoelectron & leadpt20]
+        truths = [
+            np.ones(40, dtype=bool),
+            nomuon,
+            nomuon & twoelectron,
+            nomuon & twoelectron & leadpt20,
+        ]
         if commonmasked:
             truths = [truth & commonmask for truth in truths]
         for h, array in zip(hcutflows, [events.Electron.pt, events.Electron.phi]):
@@ -1495,9 +1696,16 @@ def test_packed_selection_cutflow_extended_dak(optimization_enabled, weighted, c
                 counts = h.project(h.axes.name[0], "cutflow")[:, i].counts(flow=True)
                 counts[1] += counts[0]
                 counts[-2] += counts[-1]
-                fill_array, fill_weights = dak.broadcast_arrays(array[truth], weight.weight(r_weightsmodifier)[truth])
-                c, e = np.histogram(dak.flatten(fill_array).compute(), bins=edges, weights=dak.flatten(fill_weights).compute() if weighted else None)
+                fill_array, fill_weights = dak.broadcast_arrays(
+                    array[truth], weight.weight(r_weightsmodifier)[truth]
+                )
+                c, e = np.histogram(
+                    dak.flatten(fill_array).compute(),
+                    bins=edges,
+                    weights=dak.flatten(fill_weights).compute() if weighted else None,
+                )
                 assert np.all(np.isclose(counts[1:-1], c))
+
 
 @pytest.mark.parametrize("optimization_enabled", [True, False])
 def test_packed_selection_nminusone_dak_uproot_only(optimization_enabled):
