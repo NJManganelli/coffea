@@ -678,6 +678,8 @@ class CutflowToNpz:
         return self._weightsmodifier
 
     def compute(self):
+        # Weights has no compute method, ergo it will pass through uncomputed, i.e. as a delayed object
+        # self._weights = list(self._weights) if isinstance(self._weights, (tuple, list)) else self._weights
         (
             self._nevonecut,
             self._nevcutflow,
@@ -686,7 +688,7 @@ class CutflowToNpz:
             self._wgtevcutflow,
             self._masksonecut,
             self._maskscutflow,
-            self._weights,
+            self._weights_wmodifier,
         ) = dask.compute(
             self._nevonecut,
             self._nevcutflow,
@@ -695,16 +697,16 @@ class CutflowToNpz:
             self._wgtevcutflow,
             self._masksonecut,
             self._maskscutflow,
-            self._weights,
+            self._weights.weight(self._weightsmodifier) if self._weights is not None else None,
         )
         self._nevonecut = list(self._nevonecut)
         self._nevcutflow = list(self._nevcutflow)
         self._masksonecut = list(self._masksonecut)
         self._maskscutflow = list(self._maskscutflow)
-        self._commonmask = list(self._commonmask) if self._commonmask is not None else None
-        self._wgtevonecut = list(self._wgtevonecut) if self._wgtevonecut is not None else None
-        self._wgtevcutflow = list(self._wgtevcutflow) if self._wgtevcutflow is not None else None
-        self._weights = list(self._weights) if isinstance(self._weights, (tuple, list)) else self._weights
+        self._commonmask = list(self._commonmask) if self._commonmasked else None
+        self._wgtevonecut = list(self._wgtevonecut) if self._weighted else None
+        self._wgtevcutflow = list(self._wgtevcutflow) if self._weighted else None
+        self._weights_wmodifier = list(self._weights_wmodifier) if self._weights is not None else None
         to_save = {
             "labels": self._labels,
             "nevonecut": self._nevonecut,
@@ -718,7 +720,7 @@ class CutflowToNpz:
             to_save["wgtevonecut"] = self._wgtevonecut
             to_save["wgtevcutflow"] = self._wgtevcutflow
         if self._weights is not None:
-            to_save["weights"] = self._weights.weight(self._weightsmodifier)
+            to_save["weights"] = self._weights_wmodifier
         self._saver(self._file, **to_save)
 
 
