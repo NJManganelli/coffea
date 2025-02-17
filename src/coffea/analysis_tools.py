@@ -20,6 +20,7 @@ from dask_awkward.utils import IncompatiblePartitions
 import coffea.processor
 import coffea.util
 
+
 def _generate_slices(array_length, max_elements=128):
     """Generate slices to split an array into chunks of at most `max_elements` elements
 
@@ -41,7 +42,13 @@ def _generate_slices(array_length, max_elements=128):
         slices.append(slice(start, end))
     return slices
 
-def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False,insert_commonmask_as_zeros=None, return_mask=False):
+
+def boolean_masks_to_categorical_integers(
+    masks,
+    insert_unmasked_as_zeros=False,
+    insert_commonmask_as_zeros=None,
+    return_mask=False,
+):
     """Converts a list of boolean masks to irregular arrays of enumerated categorical integers
 
     Parameters
@@ -77,7 +84,9 @@ def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False,
     """
     mask_inputs = [mask[:, None] for mask in masks]
     if insert_unmasked_as_zeros and insert_commonmask_as_zeros is not None:
-        raise ValueError("insert_unmasked_as_zeros and insert_commonmask_as_zeros cannot be used together")
+        raise ValueError(
+            "insert_unmasked_as_zeros and insert_commonmask_as_zeros cannot be used together"
+        )
     if insert_unmasked_as_zeros:
         mask_inputs.insert(0, awkward.ones_like(mask_inputs[0], dtype=bool))
     if insert_commonmask_as_zeros is not None:
@@ -87,7 +96,9 @@ def boolean_masks_to_categorical_integers(masks, insert_unmasked_as_zeros=False,
     # which was merged in awkward v2.7.2 (https://github.com/scikit-hep/awkward/releases/tag/v2.7.2) and this can be removed when it becomes the minimum version for coffea
     for slc in _generate_slices(len(mask_inputs), max_elements=128):
         # create subarrays of the masks to concatenate, to work around issue prior to awkward v2.7.2
-        irregular_masks.append(awkward.from_regular(awkward.concatenate(mask_inputs[slc], axis=1), axis=1))
+        irregular_masks.append(
+            awkward.from_regular(awkward.concatenate(mask_inputs[slc], axis=1), axis=1)
+        )
     if len(irregular_masks) == 1:
         # unwrap the new concatenated (irregular) masks if there is only one
         irregular_mask = irregular_masks[0]
@@ -656,7 +667,7 @@ class CutflowToNpz:
     @property
     def maskscutflow(self):
         return self._maskscutflow
-    
+
     @property
     def commonmask(self):
         return self._commonmask
@@ -697,7 +708,11 @@ class CutflowToNpz:
             self._wgtevcutflow,
             self._masksonecut,
             self._maskscutflow,
-            self._weights.weight(self._weightsmodifier) if self._weights is not None else None,
+            (
+                self._weights.weight(self._weightsmodifier)
+                if self._weights is not None
+                else None
+            ),
         )
         self._nevonecut = list(self._nevonecut)
         self._nevcutflow = list(self._nevcutflow)
@@ -706,7 +721,9 @@ class CutflowToNpz:
         self._commonmask = list(self._commonmask) if self._commonmasked else None
         self._wgtevonecut = list(self._wgtevonecut) if self._weighted else None
         self._wgtevcutflow = list(self._wgtevcutflow) if self._weighted else None
-        self._weights_wmodifier = list(self._weights_wmodifier) if self._weights is not None else None
+        self._weights_wmodifier = (
+            list(self._weights_wmodifier) if self._weights is not None else None
+        )
         to_save = {
             "labels": self._labels,
             "nevonecut": self._nevonecut,
@@ -1013,7 +1030,7 @@ class Cutflow:
                     The boolean mask vectors of which events pass each cut alone as a list of materialized or delayed boolean arrays
                 maskscutflow : list of boolean numpy.ndarray or dask_awkward.lib.core.Array objects
                     The boolean mask vectors of which events pass the cumulative cutflow a list of materialized or delayed boolean arrays
-            
+
             result: ExtendedCutflowResult
                 A namedtuple with the CutflowResult properties and additionally the following:
 
@@ -1209,7 +1226,6 @@ class Cutflow:
             )
             print(stats)
 
-
     def yieldhist(self, weighted=None, v2=False, categorical=None):
         """Returns the cutflow yields as ``hist.Hist`` objects
 
@@ -1239,7 +1255,9 @@ class Cutflow:
             catlabels : list of strings
                 The labels of the categorical axis
         """
-        print("Cutflow yieldhist should fold in commonmask for the initial fill where appropriate (v2...)")
+        print(
+            "Cutflow yieldhist should fold in commonmask for the initial fill where appropriate (v2...)"
+        )
         print("Cutflow yieldhist should work for categorical")
         do_weighted = self._weighted if weighted is None else weighted
         Hist = hist.Hist if not self._delayed_mode else hist.dask.Hist
@@ -1257,7 +1275,9 @@ class Cutflow:
             axes.append(hist.storage.Weight())
         if not self._delayed_mode and not v2:
             if categorical is not None:
-                raise NotImplementedError("yieldhist is not implemented for non-delayed mode (v1) with categorical")
+                raise NotImplementedError(
+                    "yieldhist is not implemented for non-delayed mode (v1) with categorical"
+                )
             honecut = hist.Hist(*axes)
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
@@ -1269,7 +1289,7 @@ class Cutflow:
                 numpy.arange(len(labels), dtype=int),
                 weight=self._wgtevcutflow if do_weighted else self._nevcutflow,
             )
-        #elif not self._delayed_mode and v2:
+        # elif not self._delayed_mode and v2:
         #    raise NotImplementedError("yieldhist is not implemented for non-delayed mode and v2")
         #    honecut = hist.Hist(*axes)
         #    hcutflow = honecut.copy()
@@ -1288,7 +1308,9 @@ class Cutflow:
         #    hcutflow.fill(numpy.arange(len(labels), dtype=int), weight=self._wgtevcutflow if do_weighted else self._nevcutflow)
         elif self._delayed_mode and not v2:
             if categorical is not None:
-                raise NotImplementedError("yieldhist is not implemented for non-delayed mode (v1) with categorical")
+                raise NotImplementedError(
+                    "yieldhist is not implemented for non-delayed mode (v1) with categorical"
+                )
             honecut = hist.dask.Hist(*axes)
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow",)
@@ -1336,23 +1358,55 @@ class Cutflow:
             hcutflow = honecut.copy()
             hcutflow.axes.name = ("cutflow", *honecut.axes[1:].name)
 
-            weight = self._weights.weight(self._weightsmodifier) if do_weighted else ak_or_dak.ones_like(self._masksonecut[0], dtype=numpy.float32)
-            print("To insert commonmask here will be annoying... it needs to modify the unmasked_as_zeros")
+            weight = (
+                self._weights.weight(self._weightsmodifier)
+                if do_weighted
+                else ak_or_dak.ones_like(self._masksonecut[0], dtype=numpy.float32)
+            )
+            print(
+                "To insert commonmask here will be annoying... it needs to modify the unmasked_as_zeros"
+            )
             if self._commonmasked:
-                to_broadcastonecut = {"onecut": boolean_masks_to_categorical_integers(self._masksonecut, insert_commonmask_as_zeros=self._commonmask)}
-                to_broadcastcutflow = {"cutflow": boolean_masks_to_categorical_integers(self._maskscutflow, insert_commonmask_as_zeros=self._commonmask)}
+                to_broadcastonecut = {
+                    "onecut": boolean_masks_to_categorical_integers(
+                        self._masksonecut, insert_commonmask_as_zeros=self._commonmask
+                    )
+                }
+                to_broadcastcutflow = {
+                    "cutflow": boolean_masks_to_categorical_integers(
+                        self._maskscutflow, insert_commonmask_as_zeros=self._commonmask
+                    )
+                }
             else:
-                to_broadcastonecut = {"onecut": boolean_masks_to_categorical_integers(self._masksonecut, insert_unmasked_as_zeros=True)}
-                to_broadcastcutflow = {"cutflow": boolean_masks_to_categorical_integers(self._maskscutflow, insert_unmasked_as_zeros=True)}
+                to_broadcastonecut = {
+                    "onecut": boolean_masks_to_categorical_integers(
+                        self._masksonecut, insert_unmasked_as_zeros=True
+                    )
+                }
+                to_broadcastcutflow = {
+                    "cutflow": boolean_masks_to_categorical_integers(
+                        self._maskscutflow, insert_unmasked_as_zeros=True
+                    )
+                }
             if categorical is not None:
-                to_broadcastonecut[catax.name] = categorical.get("values")
-                to_broadcastcutflow[catax.name] = categorical.get("values")
+                to_broadcastonecut[catax.name] = catvar
+                to_broadcastcutflow[catax.name] = catvar
             to_broadcastonecut["weight"] = weight
             to_broadcastcutflow["weight"] = weight
-            broadcastedonecut = zip(to_broadcastonecut.keys(), ak_or_dak.broadcast_arrays(*to_broadcastonecut.values()))
-            broadcastedcutflow = zip(to_broadcastcutflow.keys(), ak_or_dak.broadcast_arrays(*to_broadcastcutflow.values()))
-            onecutargs = {k: ak_or_dak.flatten(arr, axis=None) for k, arr in broadcastedonecut}
-            cutflowargs = {k: ak_or_dak.flatten(arr, axis=None) for k, arr in broadcastedcutflow}
+            broadcastedonecut = zip(
+                to_broadcastonecut.keys(),
+                ak_or_dak.broadcast_arrays(*to_broadcastonecut.values()),
+            )
+            broadcastedcutflow = zip(
+                to_broadcastcutflow.keys(),
+                ak_or_dak.broadcast_arrays(*to_broadcastcutflow.values()),
+            )
+            onecutargs = {
+                k: ak_or_dak.flatten(arr, axis=None) for k, arr in broadcastedonecut
+            }
+            cutflowargs = {
+                k: ak_or_dak.flatten(arr, axis=None) for k, arr in broadcastedcutflow
+            }
             honecut.fill(**onecutargs)
             hcutflow.fill(**cutflowargs)
 
@@ -1429,7 +1483,9 @@ class Cutflow:
                     raise IncompatiblePartitions("plot_vars", var, self._masksonecut[0])
             if categorical is not None:
                 if not compatible_partitions(catvar, self._masksonecut[0]):
-                    raise IncompatiblePartitions("plot_vars (categorical values)", catvar, self._masksonecut[0])
+                    raise IncompatiblePartitions(
+                        "plot_vars (categorical values)", catvar, self._masksonecut[0]
+                    )
         else:
             for name, var in vars.items():
                 if len(var) != len(self._masksonecut[0]):
@@ -1480,21 +1536,65 @@ class Cutflow:
             hcutflow.axes.name = (name, "cutflow", *honecut.axes[2:].name)
 
             # initial fill is special, needs to have commonmask applied if it exists
-            to_fill_initial = {k: v[self.result().commonmask] for k, v in fill_args.items()} if self._commonmasked else fill_args
-            to_fill_initial = dict(zip(to_fill_initial.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_initial.values())]))
-            honecut.fill(onecut=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
+            to_fill_initial = (
+                {k: v[self.result().commonmask] for k, v in fill_args.items()}
+                if self._commonmasked
+                else fill_args
+            )
+            to_fill_initial = dict(
+                zip(
+                    to_fill_initial.keys(),
+                    [
+                        ak_or_dak.flatten(arr)
+                        for arr in ak_or_dak.broadcast_arrays(*to_fill_initial.values())
+                    ],
+                )
+            )
+            honecut.fill(
+                onecut=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int),
+                **to_fill_initial,
+            )
 
             for i, mask in enumerate(self.result().masksonecut, 1):
                 to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
-                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter.values())]))
-                honecut.fill(onecut=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
+                to_fill_iter = dict(
+                    zip(
+                        to_fill_iter.keys(),
+                        [
+                            ak_or_dak.flatten(arr)
+                            for arr in ak_or_dak.broadcast_arrays(
+                                *to_fill_iter.values()
+                            )
+                        ],
+                    )
+                )
+                honecut.fill(
+                    onecut=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int),
+                    **to_fill_iter,
+                )
             histsonecut.append(honecut)
 
-            hcutflow.fill(cutflow=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int), **to_fill_initial)
+            hcutflow.fill(
+                cutflow=ak_or_dak.zeros_like(to_fill_initial[name], dtype=int),
+                **to_fill_initial,
+            )
             for i, mask in enumerate(self.result().maskscutflow, 1):
                 to_fill_iter = {k: v[mask] for k, v in fill_args.items()}
-                to_fill_iter = dict(zip(to_fill_iter.keys(), [ak_or_dak.flatten(arr) for arr in ak_or_dak.broadcast_arrays(*to_fill_iter.values())]))
-                hcutflow.fill(cutflow=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int), **to_fill_iter)
+                to_fill_iter = dict(
+                    zip(
+                        to_fill_iter.keys(),
+                        [
+                            ak_or_dak.flatten(arr)
+                            for arr in ak_or_dak.broadcast_arrays(
+                                *to_fill_iter.values()
+                            )
+                        ],
+                    )
+                )
+                hcutflow.fill(
+                    cutflow=ak_or_dak.full_like(to_fill_iter[name], i, dtype=int),
+                    **to_fill_iter,
+                )
             histscutflow.append(hcutflow)
 
         if categorical is not None:
@@ -1865,14 +1965,22 @@ class PackedSelection:
                 weightscutflow.append(weights2)
 
         if not self.delayed_mode:
-            nevonecut = [numpy.sum(commonmask) if commonmask is not None else len(self._data)]
-            nevcutflow = [numpy.sum(commonmask) if commonmask is not None else len(self._data)]
+            nevonecut = [
+                numpy.sum(commonmask) if commonmask is not None else len(self._data)
+            ]
+            nevcutflow = [
+                numpy.sum(commonmask) if commonmask is not None else len(self._data)
+            ]
             nevonecut.extend(numpy.sum(masksonecut, axis=1))
             nevcutflow.extend(numpy.sum(maskscutflow, axis=1))
             if weights is not None:
                 if commonmask is not None:
-                    wgtevonecut = [numpy.sum(weights.weight(weightsmodifier)[commonmask])]
-                    wgtevcutflow = [numpy.sum(weights.weight(weightsmodifier)[commonmask])]
+                    wgtevonecut = [
+                        numpy.sum(weights.weight(weightsmodifier)[commonmask])
+                    ]
+                    wgtevcutflow = [
+                        numpy.sum(weights.weight(weightsmodifier)[commonmask])
+                    ]
                 else:
                     wgtevonecut = [numpy.sum(weights.weight(weightsmodifier))]
                     wgtevcutflow = [numpy.sum(weights.weight(weightsmodifier))]
@@ -1880,14 +1988,30 @@ class PackedSelection:
                 wgtevcutflow.extend([numpy.sum(wgt2) for wgt2 in weightscutflow])
 
         else:
-            nevonecut = [dask_awkward.sum(commonmask) if commonmask is not None else dask_awkward.count(self._data, axis=0)]
-            nevcutflow = [dask_awkward.sum(commonmask) if commonmask is not None else dask_awkward.count(self._data, axis=0)]
+            nevonecut = [
+                (
+                    dask_awkward.sum(commonmask)
+                    if commonmask is not None
+                    else dask_awkward.count(self._data, axis=0)
+                )
+            ]
+            nevcutflow = [
+                (
+                    dask_awkward.sum(commonmask)
+                    if commonmask is not None
+                    else dask_awkward.count(self._data, axis=0)
+                )
+            ]
             nevonecut.extend([dask_awkward.sum(mask1) for mask1 in masksonecut])
             nevcutflow.extend([dask_awkward.sum(mask2) for mask2 in maskscutflow])
             if weights is not None:
                 if commonmask is not None:
-                    wgtevonecut = [dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])]
-                    wgtevcutflow = [dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])]
+                    wgtevonecut = [
+                        dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])
+                    ]
+                    wgtevcutflow = [
+                        dask_awkward.sum(weights.weight(weightsmodifier)[commonmask])
+                    ]
                 else:
                     wgtevonecut = [dask_awkward.sum(weights.weight(weightsmodifier))]
                     wgtevcutflow = [dask_awkward.sum(weights.weight(weightsmodifier))]
