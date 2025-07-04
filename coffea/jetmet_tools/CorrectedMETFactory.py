@@ -13,8 +13,8 @@ def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=No
     )
     if deltas:
         positive, dx, dy = deltas
-        x = x + dx if positive else x - dx
-        y = y + dy if positive else y - dy
+        x = x + (0 if dx is None else dx) if positive else x - (0 if dx is None else dx)
+        y = y + (0 if dy is None else dy) if positive else y - (0 if dy is None else dy)
     return awkward.zip({"pt": numpy.hypot(x, y), "phi": numpy.arctan2(y, x)})
 
 
@@ -72,6 +72,7 @@ class CorrectedMETFactory(object):
                 form=form.contents["pt"],
                 cache=lazy_cache,
             )
+
             variant[self.name_map["METphi"]] = awkward.virtual(
                 lambda: awkward.materialized(corrected_met.phi),
                 length=length,
@@ -86,16 +87,16 @@ class CorrectedMETFactory(object):
                     "up": make_variant(
                         MET[metpt],
                         MET[metphi],
-                        corrected_jets[unc].up[jetpt],
+                        corrected_jets[unc].up[jetpt]*(corrected_jets[unc].up.muonSubtrFactor-1),
                         corrected_jets[unc].up[jetphi],
-                        corrected_jets[unc].up[jetptraw],
+                        corrected_jets[self.name_map["ptRaw"]],
                     ),
                     "down": make_variant(
                         MET[metpt],
                         MET[metphi],
-                        corrected_jets[unc].down[jetpt],
+                        corrected_jets[unc].down[jetpt]*(corrected_jets[unc].down.muonSubtrFactor-1),
                         corrected_jets[unc].down[jetphi],
-                        corrected_jets[unc].down[jetptraw],
+                        corrected_jets[self.name_map["ptRaw"]],
                     ),
                 },
                 depth_limit=1,
@@ -109,11 +110,12 @@ class CorrectedMETFactory(object):
             corrected_jets[self.name_map["JetPhi"]],
             corrected_jets[self.name_map["ptRaw"]],
         )
+
+
         out[self.name_map["METpt"] + "_orig"] = MET[self.name_map["METpt"]]
         out[self.name_map["METphi"] + "_orig"] = MET[self.name_map["METphi"]]
 
         out_dict = {field: out[field] for field in awkward.fields(out)}
-
         out_dict["MET_UnclusteredEnergy"] = awkward.zip(
             {
                 "up": make_variant(
@@ -124,8 +126,8 @@ class CorrectedMETFactory(object):
                     corrected_jets[self.name_map["ptRaw"]],
                     (
                         True,
-                        MET[self.name_map["UnClusteredEnergyDeltaX"]],
-                        MET[self.name_map["UnClusteredEnergyDeltaY"]],
+                        MET[self.name_map["UnClusteredEnergyDeltaX"]] if self.name_map["UnClusteredEnergyDeltaX"] in dir(MET)  else None,
+                        MET[self.name_map["UnClusteredEnergyDeltaY"]] if self.name_map["UnClusteredEnergyDeltaX"] in dir(MET)  else None,
                     ),
                 ),
                 "down": make_variant(
@@ -136,8 +138,8 @@ class CorrectedMETFactory(object):
                     corrected_jets[self.name_map["ptRaw"]],
                     (
                         False,
-                        MET[self.name_map["UnClusteredEnergyDeltaX"]],
-                        MET[self.name_map["UnClusteredEnergyDeltaY"]],
+                        MET[self.name_map["UnClusteredEnergyDeltaX"]] if self.name_map["UnClusteredEnergyDeltaX"] in dir(MET) else None,
+                        MET[self.name_map["UnClusteredEnergyDeltaY"]] if self.name_map["UnClusteredEnergyDeltaX"] in dir(MET) else None,
                     ),
                 ),
             },
