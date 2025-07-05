@@ -284,7 +284,9 @@ class IOFactory:
         return format in cls._formats
 
     @classmethod
-    def promote_datasetspec(cls, input: DatasetSpec | DatasetSpecOptional | DatasetJoinSpec):
+    def promote_datasetspec(
+        cls, input: DatasetSpec | DatasetSpecOptional | DatasetJoinSpec
+    ):
         if type(input) is DatasetJoinSpec:
             return input
         elif isinstance(input, dict):
@@ -297,7 +299,7 @@ class IOFactory:
                     metadata=input.metadata,
                     form=input.form,
                 )
-            except Exception as e:
+            except Exception:
                 return input
 
     @classmethod
@@ -813,6 +815,7 @@ def _normalize_parquet_file_info(file_info, return_form_or_metadata=False):
         return normed_files, form, metadata
     return normed_files
 
+
 def get_parquet_form_uuid_steps(
     normed_files: awkward.Array | dask_awkward.Array,
     step_size: int | None = None,
@@ -867,12 +870,12 @@ def get_parquet_form_uuid_steps(
             else:
                 raise e
 
-        num_entries = the_file['num_rows']
+        num_entries = the_file["num_rows"]
 
         form_json = None
         form_hash = None
         if save_form:
-            form = the_file['form']
+            form = the_file["form"]
             form_str = form.to_json()
             # the function cache needs to be popped if present to prevent memory growth
             if hasattr(dask.base, "function_cache"):
@@ -883,14 +886,14 @@ def get_parquet_form_uuid_steps(
 
         target_step_size = num_entries if step_size is None else step_size
 
-        file_uuid = the_file.get('uuid', None)
+        file_uuid = the_file.get("uuid", None)
 
         out_uuid = arg.uuid
         out_steps = arg.steps
 
         if out_uuid != file_uuid or recalculate_steps:
             if use_row_groups:
-                row_group_entries = the_file['col_counts']
+                row_group_entries = the_file["col_counts"]
                 out = [0]
                 this_offset = 0
                 for c in row_group_entries:

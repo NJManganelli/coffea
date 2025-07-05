@@ -9,22 +9,20 @@ from coffea.dataset_tools.manipulations import (
     slice_files,
 )
 from coffea.dataset_tools.preprocess import (
-    preprocess,
-    preprocess_parquet,
-    UprootFileSpec,
-    ParquetFileSpec,
     CoffeaFileSpec,
     CoffeaFileSpecOptional,
     CoffeaParquetFileSpec,
     CoffeaParquetFileSpecOptional,
-    DatasetSpec,
     DatasetJoinSpec,
+    DatasetSpec,
     DatasetSpecOptional,
-    FilesetSpecOptional,
     FilesetSpec,
     FilesetSpecOptional,
-    FilesetSpec,
     IOFactory,
+    ParquetFileSpec,
+    UprootFileSpec,
+    preprocess,
+    preprocess_parquet,
 )
 
 __all__ = [
