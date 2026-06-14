@@ -600,6 +600,7 @@ def get_parquet_form_uuid_steps(
         form_json = None
         form_hash = None
         if save_form:
+            dask = _import_dask()
             form = the_file["form"]
             form_str = form.to_json()
             # the function cache needs to be popped if present to prevent memory growth
@@ -903,6 +904,9 @@ def _preprocess_pydantic(
         raise ValueError(
             f"_preprocess_pydantic expects a DataGroupSpec, got {type(datagroupspec)}"
         )
+    dask = _import_dask()
+    dask_awkward = _import_dask_awkward()
+
     out_updated = datagroupspec.model_dump()
     out_available = datagroupspec.model_dump()
 
