@@ -208,7 +208,47 @@ class _map_schema_parquet(_map_schema_base):
         lform = PreloadedSourceMapping._extract_base_form(column_source)
         lform["parameters"]["metadata"] = self.metadata
 
-        return awkward.forms.form.from_dict(self.schemaclass(lform, self.version).form)
+        return (
+            awkward.forms.form.from_dict(self.schemaclass(lform, self.version).form),
+            self,
+        )
+
+    def load_buffers(self, columns, keys, start, stop, options):
+        """Load mapped-form buffers from raw parquet column arrays.
+
+        This is the parquet counterpart of ``_map_schema_uproot.load_buffers``,
+        with the signature expected by ``dask_awkward.from_parquet``'s
+        ``form_mapping`` hook: ``columns`` holds the raw top-level column
+        arrays already read from parquet (restricted to the projected keys),
+        and ``options`` carries partition provenance (source path, row groups).
+        """
+        from functools import partial
+
+        from coffea.nanoevents.util import tuple_to_key
+
+        partition_key = (
+            str(options.get("source", None)),
+            str(options.get("row_groups", None)),
+            f"{start}-{stop}",
+        )
+        uuidpfn = {partition_key[0]: options.get("source", None)}
+        source_arrays = {
+            k: _OnlySliceableAs(v, slice(start, stop)) for k, v in columns.items()
+        }
+        mapping = PreloadedSourceMapping(
+            PreloadedOpener(uuidpfn), start, stop, access_log=None
+        )
+        mapping.preload_column_source(partition_key[0], partition_key[1], source_arrays)
+
+        buffer_key = partial(self._key_formatter, tuple_to_key(partition_key))
+
+        # The buffer-keys that dask-awkward knows about will not include the
+        # partition key. Therefore, we must translate the keys here.
+        def translate_key(index):
+            form_key, attribute = self.parse_buffer_key(index)
+            return buffer_key(form_key=form_key, attribute=attribute, form=None)
+
+        return _TranslatedMapping(translate_key, mapping)
 
 
 _allowed_modes = frozenset(["eager", "virtual", "dask"])
@@ -494,7 +534,9 @@ class NanoEventsFactory:
             metadata : dict, optional
                 Arbitrary metadata to add to the `base.NanoEvents` object
             parquet_options : dict, optional
-                Any options to pass to ``pyarrow.parquet.ParquetFile``
+                Any options to pass to ``pyarrow.parquet.ParquetFile`` (eager and
+                virtual mode) or to ``dask_awkward.from_parquet`` (dask mode, e.g.
+                ``split_row_groups``/``report``)
             storage_options : dict, optional
                 Options to pass to ``fsspec`` when opening the file. Only used when ``file`` is a string path.
             access_log : list, optional
@@ -525,29 +567,39 @@ class NanoEventsFactory:
             and not isinstance(schemaclass, FunctionType)
             and schemaclass.__dask_capable__
         ):
+            import inspect
+
             dask_awkward = _import_dask_awkward()
+            if (
+                "form_mapping"
+                not in inspect.signature(dask_awkward.from_parquet).parameters
+            ):
+                raise NotImplementedError(
+                    "Lazy schema-aware parquet reading requires a dask-awkward "
+                    "version whose from_parquet supports the form_mapping "
+                    "argument; upgrade dask-awkward or use mode='virtual'"
+                )
             map_schema = _map_schema_parquet(
                 schemaclass=schemaclass,
                 behavior=dict(schemaclass.behavior()),
                 metadata=metadata,
                 version="latest",
             )
-            if isinstance(file, ftypes + (str,)) or (
-                isinstance(file, list)
-                and all(isinstance(f, ftypes + (str,)) for f in file)
+            dask_ftypes = (str, pathlib.Path)
+            if isinstance(file, dask_ftypes) or (
+                isinstance(file, list) and all(isinstance(f, dask_ftypes) for f in file)
             ):
                 opener = partial(
                     dask_awkward.from_parquet,
                     file,
+                    storage_options=storage_options,
+                    **parquet_options,
                 )
             else:
                 raise TypeError(
-                    f"Invalid file type ({str(type(file))}) for file {file}"
+                    f"Invalid file type ({str(type(file))}) for file {file}; "
+                    "dask mode requires a path or list of paths"
                 )
-            # Form should be applied appropriately, but this requires a hook into dask-awkward or new schema-builder
-            raise NotImplementedError(
-                "Dask-awkward does not yet support lazy loading of parquet files with a schema"
-            )
             return cls(map_schema, opener, None, mode="dask")
         elif mode == "dask" and not schemaclass.__dask_capable__:
             warnings.warn(

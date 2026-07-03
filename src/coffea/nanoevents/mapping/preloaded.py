@@ -48,10 +48,14 @@ class PreloadedSourceMapping(BaseSourceMapping):
                 )
                 continue
             form = json.loads(branch.layout.form.to_json())
+            # Default the docstring to the column name (as the parquet source
+            # mapping does): schemas like NanoAODSchema require __doc__.
+            docstr = form.get("parameters", {}).get("__doc__", key)
             try:
                 form = _lazify_form(
                     form,
                     f"{key},!load",
+                    docstr=docstr,
                 )
             except CannotBeNanoEvents as ex:
                 warnings.warn(

@@ -32,8 +32,9 @@ def apply_to_dataset(
     data_manipulation: ProcessorABC | GenericHEPAnalysis,
     dataset: DatasetSpec | dict,
     schemaclass: BaseSchema = NanoAODSchema,
-    metadata: dict[Hashable, Any] = {},
-    uproot_options: dict[str, Any] = {},
+    metadata: dict[Hashable, Any] | None = None,
+    uproot_options: dict[str, Any] | None = None,
+    parquet_options: dict[str, Any] | None = None,
 ) -> DaskOutputType | tuple[DaskOutputType, dask_awkward.Array]:
     """
     Apply the supplied function or processor to the supplied dataset.
@@ -44,12 +45,17 @@ def apply_to_dataset(
             The user analysis code to run on the input dataset
         dataset : DatasetSpec | dict
             The data to be acted upon by the data manipulation passed in.
+            ROOT datasets are read with uproot; parquet datasets are read
+            with dask_awkward.from_parquet.
         schemaclass : BaseSchema, default NanoAODSchema
             The nanoevents schema to interpret the input dataset with.
-        metadata : dict[Hashable, Any], default {}
+        metadata : dict[Hashable, Any] | None, default None
             Metadata for the dataset that is accessible by the input analysis. Should also be dask-serializable.
-        uproot_options : dict[str, Any], default {}
-            Options to pass to uproot. Pass at least {"allow_read_errors_with_report": True} to turn on file access reports.
+        uproot_options : dict[str, Any] | None, default None
+            Options to pass to uproot (ROOT datasets only). Pass at least {"allow_read_errors_with_report": True} to turn on file access reports.
+        parquet_options : dict[str, Any] | None, default None
+            Options to pass to ``dask_awkward.from_parquet`` (parquet datasets
+            only), e.g. ``split_row_groups`` or ``storage_options``.
 
     Returns
     -------
@@ -58,18 +64,30 @@ def apply_to_dataset(
         report : dask_awkward.Array, optional
             The file access report for running the analysis on the input dataset. Needs to be computed in simultaneously with the analysis to be accurate.
     """
+    metadata = {} if metadata is None else metadata
+    uproot_options = {} if uproot_options is None else uproot_options
+    parquet_options = {} if parquet_options is None else parquet_options
     if isinstance(dataset, dict):
         dataset = DatasetSpec.model_validate(dataset)
     maybe_base_form = dataset.form
     files = dataset.files
-    events = NanoEventsFactory.from_root(
-        files.model_dump(),
-        metadata=metadata,
-        schemaclass=schemaclass,
-        known_base_form=maybe_base_form,
-        uproot_options=uproot_options,
-        mode="dask",
-    ).events()
+    if dataset.format == "parquet":
+        events = NanoEventsFactory.from_parquet(
+            list(files.model_dump().keys()),
+            metadata=metadata,
+            schemaclass=schemaclass,
+            parquet_options=parquet_options,
+            mode="dask",
+        ).events()
+    else:
+        events = NanoEventsFactory.from_root(
+            files.model_dump(),
+            metadata=metadata,
+            schemaclass=schemaclass,
+            known_base_form=maybe_base_form,
+            uproot_options=uproot_options,
+            mode="dask",
+        ).events()
 
     report = None
     if isinstance(events, tuple):
@@ -92,7 +110,8 @@ def apply_to_fileset(
     data_manipulation: ProcessorABC | GenericHEPAnalysis,
     fileset: DataGroupSpec | dict,
     schemaclass: BaseSchema = NanoAODSchema,
-    uproot_options: dict[str, Any] = {},
+    uproot_options: dict[str, Any] | None = None,
+    parquet_options: dict[str, Any] | None = None,
 ) -> dict[str, DaskOutputType] | tuple[dict[str, DaskOutputType], dask_awkward.Array]:
     """
     Apply the supplied function or processor to the supplied fileset (set of datasets).
@@ -103,10 +122,14 @@ def apply_to_fileset(
             The user analysis code to run on the input dataset
         fileset : DataGroupSpec | dict
             The data to be acted upon by the data manipulation passed in. Metadata within the fileset should be dask-serializable.
+            Datasets may mix formats: ROOT datasets are read with uproot,
+            parquet datasets with dask_awkward.from_parquet.
         schemaclass : BaseSchema, default NanoAODSchema
             The nanoevents schema to interpret the input dataset with.
-        uproot_options : dict[str, Any], default {}
-            Options to pass to uproot. Pass at least {"allow_read_errors_with_report": True} to turn on file access reports.
+        uproot_options : dict[str, Any] | None, default None
+            Options to pass to uproot (ROOT datasets only). Pass at least {"allow_read_errors_with_report": True} to turn on file access reports.
+        parquet_options : dict[str, Any] | None, default None
+            Options to pass to ``dask_awkward.from_parquet`` (parquet datasets only).
 
     Returns
     -------
@@ -125,7 +148,12 @@ def apply_to_fileset(
             metadata = {}
         metadata.setdefault("dataset", name)
         dataset_out = apply_to_dataset(
-            data_manipulation, dataset, schemaclass, metadata, uproot_options
+            data_manipulation,
+            dataset,
+            schemaclass,
+            metadata,
+            uproot_options,
+            parquet_options,
         )
         if isinstance(dataset_out, tuple) and len(dataset_out) > 1:
             out[name], report[name] = dataset_out

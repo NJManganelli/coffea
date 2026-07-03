@@ -214,6 +214,73 @@ def test_missing_eventIds_warning_dask(tests_directory, dask_client):
         events.Muon.pt.compute()
 
 
+@pytest.mark.parametrize("suffix", suffixes)
+def test_read_nanomc_dask(tests_directory, suffix):
+    """The eager physics assertions of test_read_nanomc, through dask mode.
+
+    Parametrized over ROOT and parquet so the parquet dask path (via
+    dask_awkward.from_parquet's form_mapping hook) is exercised alongside the
+    baseline uproot.dask path.
+    """
+    dask_awkward = pytest.importorskip("dask_awkward")
+    import dask
+
+    path = f"{tests_directory}/samples/nano_dy.{suffix}"
+    factory = getattr(
+        NanoEventsFactory, f"from_{suffix.removeprefix('extensionarray.')}"
+    )(
+        {path: "Events"} if suffix == "root" else path,
+        schemaclass=NanoAODSchema,
+        mode="dask",
+    )
+    events = factory.events()
+    assert isinstance(events, dask_awkward.Array)
+
+    electron_gen_ok, muon_gen_ok, dr_zero, is_tight = dask.compute(
+        ak.all(
+            (abs(events.Electron.matched_gen.pdgId) == 11)
+            | (events.Electron.matched_gen.pdgId == 22)
+        ),
+        ak.all(abs(events.Muon.matched_gen.pdgId) == 13),
+        ak.all(events.Muon.matched_jet.delta_r(events.Muon.nearest(events.Jet)) == 0.0),
+        ak.any(events.Photon.isTight, axis=1),
+    )
+    assert electron_gen_ok
+    assert muon_gen_ok
+    assert dr_zero
+    assert is_tight.tolist()[:9] == [
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+
+
+@pytest.mark.parametrize("suffix", ["parquet", "extensionarray.parquet"])
+def test_read_nanomc_dask_parquet_projection(tests_directory, suffix):
+    """Column projection through the parquet form mapping reports raw
+    parquet column names, and dask-mode values agree with virtual mode."""
+    dask_awkward = pytest.importorskip("dask_awkward")
+
+    path = f"{tests_directory}/samples/nano_dy.{suffix}"
+    events = NanoEventsFactory.from_parquet(
+        path, schemaclass=NanoAODSchema, mode="dask"
+    ).events()
+    jet_pt = events.Jet.pt
+    columns = next(iter(dask_awkward.report_necessary_columns(jet_pt).values()))
+    assert columns == frozenset({"nJet", "Jet_pt"})
+
+    events_virtual = NanoEventsFactory.from_parquet(
+        path, schemaclass=NanoAODSchema, mode="virtual"
+    ).events()
+    assert jet_pt.compute().to_list() == events_virtual.Jet.pt.to_list()
+
+
 @pytest.mark.parametrize("mode", ["eager", "virtual"])
 def test_access_log(tests_directory, mode):
     """Test that access_log is available on the factory."""

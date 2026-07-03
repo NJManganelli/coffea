@@ -491,6 +491,55 @@ def test_apply_to_fileset(proc_and_schema, dask_client):
 
 
 @pytest.mark.dask_client
+def test_apply_to_fileset_parquet():
+    """apply_to_fileset routes parquet datasets through
+    NanoEventsFactory.from_parquet in dask mode; cutflows match the ROOT
+    equivalents of the same samples."""
+    fileset = {
+        "ZJets": {"files": {"tests/samples/nano_dy.parquet": None}},
+        "Data": {"files": {"tests/samples/nano_dimuon.parquet": None}},
+    }
+    with Client() as _:
+        dataset_runnable, _ = preprocess(fileset, step_size=7, save_form=True)
+        assert dataset_runnable["ZJets"].format == "parquet"
+
+        to_compute = apply_to_fileset(
+            NanoEventsProcessor(),
+            dataset_runnable,
+            schemaclass=NanoAODSchema,
+        )
+        out = dask.compute(to_compute)[0]
+
+        assert out["ZJets"]["cutflow"]["ZJets_pt"] == 18
+        assert out["ZJets"]["cutflow"]["ZJets_mass"] == 6
+        assert out["Data"]["cutflow"]["Data_pt"] == 84
+        assert out["Data"]["cutflow"]["Data_mass"] == 66
+
+
+@pytest.mark.dask_client
+def test_apply_to_fileset_mixed_formats():
+    """A single fileset mixing a ROOT dataset and a parquet dataset."""
+    fileset = {
+        "ZJets": {"files": {"tests/samples/nano_dy.root": "Events"}},
+        "Data": {"files": {"tests/samples/nano_dimuon.parquet": None}},
+    }
+    with Client() as _:
+        dataset_runnable, _ = preprocess(fileset, step_size=7, save_form=True)
+
+        to_compute = apply_to_fileset(
+            NanoEventsProcessor(),
+            dataset_runnable,
+            schemaclass=NanoAODSchema,
+        )
+        out = dask.compute(to_compute)[0]
+
+        assert out["ZJets"]["cutflow"]["ZJets_pt"] == 18
+        assert out["ZJets"]["cutflow"]["ZJets_mass"] == 6
+        assert out["Data"]["cutflow"]["Data_pt"] == 84
+        assert out["Data"]["cutflow"]["Data_mass"] == 66
+
+
+@pytest.mark.dask_client
 @pytest.mark.parametrize(
     "the_fileset",
     [_starting_fileset, DataGroupSpec(_starting_fileset)],
