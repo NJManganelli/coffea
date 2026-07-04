@@ -11,9 +11,11 @@ import fsspec
 import uproot
 
 from coffea.nanoevents.mapping import (
+    FlightSourceMapping,
     ParquetSourceMapping,
     PreloadedOpener,
     PreloadedSourceMapping,
+    TrivialFlightOpener,
     TrivialParquetOpener,
     TrivialUprootOpener,
     UprootSourceMapping,
@@ -244,6 +246,66 @@ class _map_schema_parquet(_map_schema_base):
 
         # The buffer-keys that dask-awkward knows about will not include the
         # partition key. Therefore, we must translate the keys here.
+        def translate_key(index):
+            form_key, attribute = self.parse_buffer_key(index)
+            return buffer_key(form_key=form_key, attribute=attribute, form=None)
+
+        return _TranslatedMapping(translate_key, mapping)
+
+
+class _map_schema_flight(_map_schema_base):
+    def __init__(
+        self, schemaclass=BaseSchema, metadata=None, behavior=None, version=None
+    ):
+        super().__init__(
+            schemaclass=schemaclass,
+            metadata=metadata,
+            behavior=behavior,
+            version=version,
+        )
+
+    def __call__(self, form):
+        lza = awkward.Array(
+            form.length_zero_array(highlevel=False), behavior=self.behavior
+        )
+        column_source = {key: lza[key] for key in awkward.fields(lza)}
+
+        lform = PreloadedSourceMapping._extract_base_form(column_source)
+        lform["parameters"]["metadata"] = self.metadata
+
+        return (
+            awkward.forms.form.from_dict(self.schemaclass(lform, self.version).form),
+            self,
+        )
+
+    def load_buffers(self, columns, keys, start, stop, options):
+        """Load mapped-form buffers from raw Flight column arrays.
+
+        The Flight counterpart of ``_map_schema_parquet.load_buffers``: ``columns``
+        holds the raw top-level column arrays already fetched over the wire
+        (restricted to the projected keys), and ``options`` carries partition
+        provenance (endpoint location and ticket).
+        """
+        from functools import partial
+
+        from coffea.nanoevents.util import tuple_to_key
+
+        partition_key = (
+            str(options.get("location", None)),
+            str(options.get("ticket", None)),
+            f"{start}-{stop}",
+        )
+        uuidpfn = {partition_key[0]: options.get("location", None)}
+        source_arrays = {
+            k: _OnlySliceableAs(v, slice(start, stop)) for k, v in columns.items()
+        }
+        mapping = PreloadedSourceMapping(
+            PreloadedOpener(uuidpfn), start, stop, access_log=None
+        )
+        mapping.preload_column_source(partition_key[0], partition_key[1], source_arrays)
+
+        buffer_key = partial(self._key_formatter, tuple_to_key(partition_key))
+
         def translate_key(index):
             form_key, attribute = self.parse_buffer_key(index)
             return buffer_key(form_key=form_key, attribute=attribute, form=None)
@@ -647,6 +709,189 @@ class NanoEventsFactory:
         mapping.preload_column_source(partition_key[0], partition_key[1], shim)
 
         base_form = mapping._extract_base_form(table_file.schema_arrow)
+
+        return cls._from_mapping(
+            mapping,
+            partition_key,
+            base_form,
+            buffer_cache,
+            schemaclass,
+            metadata,
+            mode,
+        )
+
+    @classmethod
+    def from_flight(
+        cls,
+        location,
+        descriptor,
+        *,
+        mode="virtual",
+        schemaclass=NanoAODSchema,
+        metadata=None,
+        entry_start=None,
+        entry_stop=None,
+        buffer_cache=None,
+        access_log=None,
+        descriptor_for_columns=None,
+        client_kwargs=None,
+        call_options=None,
+    ):
+        """Quickly build NanoEvents from an Apache Arrow Flight endpoint
+
+        Parameters
+        ----------
+            location : str or pyarrow.flight.FlightClient
+                A ``grpc://host:port`` URI or an already-connected Flight client.
+            descriptor : pyarrow.flight.FlightDescriptor or bytes or str or dict
+                The dataset descriptor. ``dict``/``str`` inputs are wrapped as a
+                JSON command via ``FlightDescriptor.for_command``; the
+                ``{"dataset": ..., "columns": ...}`` convention additionally
+                synthesizes a default ``descriptor_for_columns`` projection hook.
+            mode : {"eager", "virtual", "dask"}, default "virtual"
+                Backend to use when interpreting the Flight data.
+            schemaclass : BaseSchema
+                A schema class deriving from `BaseSchema` and implementing the desired view of the file
+            metadata : dict, optional
+                Arbitrary metadata to add to the `base.NanoEvents` object
+            entry_start : int or None, optional
+                Starting entry (only used in eager or virtual mode). Defaults to ``0``.
+            entry_stop : int or None, optional
+                Stopping entry (only used in eager or virtual mode). Defaults to the row count.
+            buffer_cache : dict, optional
+                A dict-like interface to a cache object. Only bare numpy arrays will be placed in this cache,
+                using globally-unique keys.
+            access_log : list, optional
+                Pass a list instance to record which branches were lazily accessed by this instance
+            descriptor_for_columns : Callable[[list[str] or None], FlightDescriptor], optional
+                Projection hook rebuilding the descriptor for a projected column
+                list (``None`` requests the full schema). If not given, a default
+                is synthesized for the ``{"dataset": ...}`` JSON convention; a raw
+                descriptor with no hook disables wire-level projection.
+            client_kwargs : dict, optional
+                Keyword arguments (e.g. ``tls_root_certs``) for constructing Flight clients.
+            call_options : pyarrow.flight.FlightCallOptions, optional
+                Call options (e.g. bearer headers) passed to Flight RPCs.
+
+        Returns
+        -------
+            NanoEventsFactory
+                Factory configured from the Flight endpoint that can materialise NanoEvents.
+        """
+        import pyarrow.flight as flight
+
+        from coffea.nanoevents.mapping.flight import (
+            _FlightColumnSource,
+            _location_uri,
+            derive_flight_identity,
+            flight_dask,
+            make_descriptor_for_columns,
+            normalize_descriptor,
+        )
+
+        if mode not in _allowed_modes:
+            raise ValueError(f"Invalid mode {mode}, valid modes are {_allowed_modes}")
+
+        descriptor = normalize_descriptor(descriptor)
+        if descriptor_for_columns is None:
+            descriptor_for_columns = make_descriptor_for_columns(descriptor)
+
+        if isinstance(location, flight.FlightClient):
+            client = location
+            location_uri = None
+        else:
+            location_uri = _location_uri(location)
+            client = flight.FlightClient(location_uri, **(client_kwargs or {}))
+
+        if (
+            mode == "dask"
+            and not isinstance(schemaclass, FunctionType)
+            and schemaclass.__dask_capable__
+        ):
+            if location_uri is None:
+                raise TypeError(
+                    "dask mode requires a location URI (not a pre-connected "
+                    "FlightClient) so workers can connect independently"
+                )
+            map_schema = _map_schema_flight(
+                schemaclass=schemaclass,
+                behavior=dict(schemaclass.behavior()),
+                metadata=metadata,
+                version="latest",
+            )
+            opener = partial(
+                flight_dask,
+                location_uri,
+                descriptor,
+                descriptor_for_columns=descriptor_for_columns,
+                client_kwargs=client_kwargs,
+                call_options=call_options,
+            )
+            return cls(map_schema, opener, None, mode="dask")
+        elif mode == "dask" and not schemaclass.__dask_capable__:
+            warnings.warn(
+                f"{schemaclass} is not dask capable despite allowing dask, generating non-dask nanoevents"
+            )
+            mode = "virtual"
+
+        info = client.get_flight_info(descriptor, call_options)
+        schema = info.schema
+        total_records = info.total_records
+
+        fuuid, obj_path, num_rows = derive_flight_identity(
+            location_uri, descriptor, schema, num_rows_default=None
+        )
+        if num_rows is None and total_records is not None and total_records >= 0:
+            num_rows = total_records
+
+        column_source = _FlightColumnSource(
+            location_uri,
+            descriptor,
+            schema,
+            descriptor_for_columns=descriptor_for_columns,
+            client=client,
+            client_kwargs=client_kwargs,
+            call_options=call_options,
+        )
+
+        if num_rows is None:
+            if mode == "virtual":
+                raise ValueError(
+                    "virtual mode requires a known row count, but the Flight "
+                    "endpoint advertised total_records < 0 and no num_rows "
+                    "metadata; use mode='eager' or populate total_records"
+                )
+            column_source._fetch_all()
+            num_rows = max(
+                (len(v) for v in column_source._columns.values()),
+                default=0,
+            )
+
+        if entry_start is None or entry_start < 0:
+            entry_start = 0
+        if entry_stop is None or entry_stop > num_rows:
+            entry_stop = num_rows
+
+        partition_key = (
+            str(fuuid),
+            obj_path,
+            f"{entry_start}-{entry_stop}",
+        )
+        uuidpfn = {partition_key[0]: obj_path}
+        mapping = FlightSourceMapping(
+            TrivialFlightOpener(uuidpfn),
+            entry_start,
+            entry_stop,
+            access_log=access_log,
+            file_handle=column_source,
+            virtual=mode == "virtual",
+            buffer_cache=buffer_cache,
+        )
+        mapping.preload_column_source(
+            partition_key[0], partition_key[1], column_source
+        )
+
+        base_form = mapping._extract_base_form(schema)
 
         return cls._from_mapping(
             mapping,
