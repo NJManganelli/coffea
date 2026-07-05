@@ -662,7 +662,7 @@ def flight_dask(
     client = flight.FlightClient(location, **(client_kwargs or {}))
     info = client.get_flight_info(descriptor, call_options)
 
-    base_form = awkward.from_arrow_schema(info.schema)
+    base_form = awkward.forms.from_dict(extract_flight_base_form(info.schema))
     expected_form, form_mapping_info = form_mapping(base_form)
 
     partitions = []

@@ -288,6 +288,58 @@ def test_flight_form_metadata_preference(single_table):
         server.shutdown()
 
 
+def test_flight_dask_nullable_extension_columns(tmp_path):
+    # Regression: flight_dask built its base form via awkward.from_arrow_schema
+    # applied directly to the advertised schema. A column_join-style producer
+    # serves plain (Hive/Trino-written) Arrow columns -- pa.field(name, type)
+    # defaults nullable=True regardless of whether any value is actually null
+    # -- retyped to awkward's Arrow-extension (AwkwardArrowType) on the
+    # advertised schema. For that Arrow-nullable=True + extension-type
+    # combination, awkward.from_arrow_schema reconstructs list columns as
+    # BitMaskedArray-wrapped forms with no form_key -- not the ListOffsetArray
+    # (+ "!load"/"!load,!content" form_key) shape NanoEvents' lazy buffer
+    # loading requires. extract_flight_base_form (what eager/virtual already
+    # use, and what the advertised schema's b"form" metadata is for) produces
+    # the correct shape; dask mode must use it too. Without the fix this
+    # raises "There are missing event ID fields" while NanoAODSchema tries to
+    # build collections from the malformed form.
+    pytest.importorskip("dask_awkward")
+
+    arr = ak.Array(
+        {
+            "run": [1, 1, 1],
+            "luminosityBlock": [7, 7, 7],
+            "event": [10, 11, 12],
+            "nJet": [2, 0, 1],
+            "Jet_pt": [[30.0, 25.0], [], [40.0]],
+            "Jet_eta": [[0.1, -0.2], [], [1.1]],
+            "Jet_phi": [[0.5, -0.5], [], [1.5]],
+            "Jet_mass": [[5.0, 4.0], [], [6.0]],
+        }
+    )
+    # Retype to nullable=True extension columns without touching buffers --
+    # the same operation column_join's restore_schema_capitalization performs
+    # when relabeling a plain (Hive-written) nullable Arrow schema onto an
+    # awkward-extension-typed advertised schema.
+    extension_table = ak.to_arrow_table(arr)
+    nullable_fields = [
+        pa.field(f.name, f.type, nullable=True) for f in extension_table.schema
+    ]
+    table = pa.Table.from_arrays(
+        extension_table.columns, schema=pa.schema(nullable_fields)
+    )
+
+    server, location = _serve([table], form=arr.layout.form)
+    try:
+        factory = NanoEventsFactory.from_flight(
+            location, {"dataset": "nano"}, schemaclass=NanoAODSchema, mode="dask"
+        )
+        events = factory.events()
+        assert ak.to_list(events.Jet.pt.compute()) == [[30.0, 25.0], [], [40.0]]
+    finally:
+        server.shutdown()
+
+
 def test_flight_virtual_requires_num_rows(single_table):
     server, location = _serve([single_table], total_records=-1)
     try:
