@@ -3,6 +3,7 @@
 import base64
 import gzip
 import hashlib
+import re
 import warnings
 from functools import partial
 from typing import Any
@@ -43,6 +44,8 @@ __all__ = [
     "coffea_console",
     "dask_method",
     "dask_property",
+    "describe_root_file",
+    "extract_cms_provenance",
     "_import_dask",
     "_import_distributed",
     "_import_dask_awkward",
@@ -459,3 +462,121 @@ def maybe_map_partitions(func, *args, **kwargs):
         return dask_awkward.map_partitions(func, *args, traverse=traverse, **kwargs)
 
     return func(*args, **func_kwargs)
+
+
+def describe_root_file(path):
+    """Summarize the top-level objects in a ROOT file.
+
+    Returns a mapping ``name -> {"classname", "num_entries", "branches"}`` for
+    each top-level key, without reading any event data. Useful for inspecting
+    unfamiliar files (which trees exist, how many entries, which branches).
+
+    Parameters
+    ----------
+    path : str
+        Path to a ROOT file (any fsspec/uproot-openable location).
+
+    Returns
+    -------
+    dict[str, dict]
+    """
+    out = {}
+    with uproot.open(path) as fin:
+        for key in fin.keys(recursive=False, cycle=False):
+            obj = fin[key]
+            branches = list(obj.keys()) if hasattr(obj, "keys") else None
+            out[key] = {
+                "classname": getattr(obj, "classname", type(obj).__name__),
+                "num_entries": getattr(obj, "num_entries", None),
+                "branches": branches,
+            }
+    return out
+
+
+# Matches ``key=<sign>S(<hex>)`` string parameters in the ASCII cmsRun
+# configuration stored (per parameter) inside the ParameterSets tree; CMS
+# serializes string values as their hex-encoded bytes. Keys may carry an ``@``
+# prefix (e.g. ``@process_name``) and be tracked (``+``) or untracked (``-``).
+_CMS_PSET_STRING = re.compile(rb"([A-Za-z0-9_@]+)=[+-]S\(([0-9A-Fa-f]*)\)")
+
+# Curated parameter key -> output field name.
+_CMS_CURATED_KEYS = {
+    "globaltag": "global_tag",
+    "@process_name": "process_names",
+    "level": "jec_levels",
+    "algorithm": "jet_algorithms",
+    "connect": "conditions_connect",
+}
+
+
+def _scan_cms_pset_strings(path):
+    """Return ``{parameter_key: set(decoded string values)}`` from the
+    ParameterSets tree, or ``None`` if the file has no such tree."""
+    with uproot.open(path) as fin:
+        if "ParameterSets" not in fin.keys(recursive=False, cycle=False):
+            return None
+        branch = fin["ParameterSets"]["IdToParameterSetsBlobs"]
+        found = {}
+        for i in range(branch.num_baskets):
+            try:
+                raw = branch.basket(i).raw_data
+            except Exception:
+                continue
+            if raw is None or len(raw) == 0:
+                continue
+            for key, hexval in _CMS_PSET_STRING.findall(bytes(raw)):
+                if not hexval:
+                    continue
+                try:
+                    value = bytes.fromhex(hexval.decode()).decode("latin-1")
+                except ValueError:
+                    continue
+                found.setdefault(key.decode(), set()).add(value)
+    return found
+
+
+def extract_cms_provenance(path, detail="curated"):
+    """Extract CMS provenance from a NanoAOD ``ParameterSets`` tree.
+
+    CMS (Nano)AOD files embed the full ``cmsRun`` configuration in a
+    ``ParameterSets`` tree whose ``edm::ParameterSetBlob`` payload uproot cannot
+    deserialize. The raw baskets are, however, ASCII configuration text with
+    string values hex-encoded as ``key=<sign>S(<hex>)``; this decodes those
+    string parameters. Values that appear multiple times across the many
+    embedded parameter sets (one per module/processing step) are de-duplicated.
+
+    Parameters
+    ----------
+    path : str
+        Path to a ROOT file.
+    detail : {"curated", "full"}
+        ``"curated"`` (default) returns a small dict of high-value provenance:
+        ``global_tag`` (conditions tag(s), identifying e.g. the JEC era),
+        ``process_names`` (the processing chain, e.g. SIM/RECO/PAT/NANO),
+        ``jec_levels``, ``jet_algorithms``, and ``conditions_connect``; only
+        keys actually present are included. ``"full"`` returns every decoded
+        string parameter as ``{parameter_key: [values...]}`` — the complete
+        configuration string table, for ad-hoc inspection.
+
+    Returns
+    -------
+    dict or None
+        The provenance mapping, or ``None`` when the file has no
+        ``ParameterSets`` tree. Multi-valued entries are sorted lists (NanoAOD
+        records e.g. the global tag of each processing step).
+    """
+    if detail not in ("curated", "full"):
+        raise ValueError(f"detail must be 'curated' or 'full', got {detail!r}")
+
+    found = _scan_cms_pset_strings(path)
+    if found is None:
+        return None
+
+    if detail == "full":
+        return {key: sorted(values) for key, values in sorted(found.items())}
+
+    return {
+        field: sorted(found[key])
+        for key, field in _CMS_CURATED_KEYS.items()
+        if key in found
+    }
