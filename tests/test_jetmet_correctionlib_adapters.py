@@ -620,3 +620,67 @@ def test_crossval_jersf():
         txt_sf.shape == clib_sf.shape
     ), f"Shape mismatch: txt={txt_sf.shape}, clib={clib_sf.shape}"
     np.testing.assert_allclose(txt_sf, clib_sf)
+
+
+# ---------------------------------------------------------------------------
+# CorrectionLibJEC compound/regular lookup helpers (for Type-1 MET)
+# ---------------------------------------------------------------------------
+
+
+def test_from_correction_set_compound_and_regular():
+    """from_correction_set resolves compound and regular corrections alike."""
+    import correctionlib
+
+    from coffea.jetmet_tools import CorrectionLibJEC
+
+    cset = correctionlib.CorrectionSet.from_file(REAL_JERC_FILE)
+    # L1L2L3Res lives in cset.compound, L1FastJet in the regular namespace.
+    full = CorrectionLibJEC.from_correction_set(
+        cset, f"{REAL_JEC_TAG}_{REAL_DATA_TYPE}_L1L2L3Res_{REAL_JET_TYPE}"
+    )
+    l1 = CorrectionLibJEC.from_correction_set(
+        cset, f"{REAL_JEC_TAG}_{REAL_DATA_TYPE}_L1FastJet_{REAL_JET_TYPE}"
+    )
+    assert "JetPt" in full.signature and "JetPt" in l1.signature
+
+    with pytest.raises(KeyError, match="not found"):
+        CorrectionLibJEC.from_correction_set(cset, "NoSuchCorrection")
+
+
+def test_type1_met_correctors_from_file():
+    """The one-call helper returns (L1, L1L2L3) matching the manual lookup."""
+    import correctionlib
+
+    from coffea.jetmet_tools import CorrectionLibJEC
+
+    jec_L1, jec_L1L2L3 = CorrectionLibJEC.type1_met_correctors_from_file(
+        REAL_JERC_FILE,
+        jec_tag=REAL_JEC_TAG,
+        data_type=REAL_DATA_TYPE,
+        jet_type=REAL_JET_TYPE,
+    )
+    assert jec_L1.signature and jec_L1L2L3.signature
+
+    cset = correctionlib.CorrectionSet.from_file(REAL_JERC_FILE)
+    man_L1 = CorrectionLibJEC(
+        cset[f"{REAL_JEC_TAG}_{REAL_DATA_TYPE}_L1FastJet_{REAL_JET_TYPE}"]
+    )
+    man_full = CorrectionLibJEC(
+        cset.compound[f"{REAL_JEC_TAG}_{REAL_DATA_TYPE}_L1L2L3Res_{REAL_JET_TYPE}"]
+    )
+
+    _, test_eta, test_pt = dummy_jagged_eta_pt()
+    kwargs = {
+        "JetPt": ak.Array(test_pt),
+        "JetEta": ak.Array(test_eta),
+        "JetA": ak.Array(np.full_like(test_eta, 0.5)),
+        "Rho": ak.Array(np.full_like(test_eta, 30.0)),
+    }
+    np.testing.assert_allclose(
+        np.asarray(jec_L1.getCorrection(**kwargs)),
+        np.asarray(man_L1.getCorrection(**kwargs)),
+    )
+    np.testing.assert_allclose(
+        np.asarray(jec_L1L2L3.getCorrection(**kwargs)),
+        np.asarray(man_full.getCorrection(**kwargs)),
+    )

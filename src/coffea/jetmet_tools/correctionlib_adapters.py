@@ -38,6 +38,70 @@ class CorrectionLibJEC:
         args = tuple(kwargs[name] for name in self._signature)
         return self._correction.evaluate(*args)
 
+    @classmethod
+    def from_correction_set(cls, cset, name):
+        """Build an adapter for *name*, whether it is a compound or regular correction.
+
+        JEC levels are split across two namespaces in JSON-POG files: the full
+        ``L1L2L3(Res)`` correction is a *compound* correction (``cset.compound``)
+        while single levels such as ``L1FastJet`` are *regular* corrections
+        (``cset``). This resolves either without the caller knowing which.
+
+        Parameters
+        ----------
+        cset : correctionlib.CorrectionSet
+        name : str
+            Full correction name, e.g. ``"Summer22_..._MC_L1FastJet_AK4PFPuppi"``.
+        """
+        if name in cset.compound:
+            return cls(cset.compound[name])
+        try:
+            return cls(cset[name])
+        except (KeyError, IndexError) as e:
+            raise KeyError(
+                f"correction {name!r} not found as a compound or regular "
+                f"correction in the correction set"
+            ) from e
+
+    @classmethod
+    def type1_met_correctors_from_file(
+        cls,
+        path,
+        jec_tag,
+        data_type,
+        jet_type,
+        l1_level="L1FastJet",
+        full_level="L1L2L3Res",
+    ):
+        """Build the ``(jec_L1, jec_L1L2L3)`` pair for Type-1 MET from a JSON-POG file.
+
+        The returned correctors are passed to
+        :class:`~coffea.jetmet_tools.CorrectedMETFactory` as
+        ``jec_L1=...`` and ``jec_L1L2L3=...`` to enable Type-1 mode.
+
+        Parameters
+        ----------
+        path : str
+            Path to the JSON-POG ``.json`` or ``.json.gz`` file.
+        jec_tag : str
+            JEC campaign tag, e.g. ``"Summer22_22Sep2023_V3"``.
+        data_type : str
+            ``"MC"`` or ``"DATA"``.
+        jet_type : str
+            Jet algorithm, e.g. ``"AK4PFPuppi"``.
+        l1_level, full_level : str
+            Level names for the L1-only and full corrections (defaults
+            ``"L1FastJet"`` and ``"L1L2L3Res"``).
+        """
+        cset = correctionlib.CorrectionSet.from_file(path)
+        jec_L1 = cls.from_correction_set(
+            cset, f"{jec_tag}_{data_type}_{l1_level}_{jet_type}"
+        )
+        jec_L1L2L3 = cls.from_correction_set(
+            cset, f"{jec_tag}_{data_type}_{full_level}_{jet_type}"
+        )
+        return jec_L1, jec_L1L2L3
+
 
 class CorrectionLibJER:
     """Adapter for a JER pt-resolution correction from correctionlib.
