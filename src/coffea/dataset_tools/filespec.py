@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import pathlib
 import re
@@ -15,6 +16,7 @@ else:
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     RootModel,
     ValidationError,
     computed_field,
@@ -33,6 +35,56 @@ class GenericFileSpec(BaseModel):
     format: str | None = None
     lfn: str | None = None
     pfn: str | None = None
+    # fsspec/universal_pathlib storage options (endpoint, credentials, bearer
+    # tokens). Excluded from serialization by default: these frequently carry
+    # secrets, and the safe contract is to re-supply them at open() time rather
+    # than persist them. A model loaded from JSON therefore has no live handle
+    # and no credentials until reopened.
+    storage_options: dict[str, Any] | None = Field(default=None, exclude=True)
+
+    # Live file handle from open(); a plain (non-field) private attribute so it
+    # is never serialized and never opened automatically when a spec is loaded.
+    _handle: Any = PrivateAttr(default=None)
+
+    def upath(self, path: str, **overrides: Any):
+        """Return a ``universal_pathlib.UPath`` for *path* carrying this spec's
+        ``storage_options`` (merged with *overrides*).
+
+        This is the object to hand to uproot / awkward for credentialed remote
+        access; it does not open the file. Requires ``universal_pathlib``.
+        """
+        from upath import UPath  # optional dependency; lazy import
+
+        opts = {**(self.storage_options or {}), **overrides}
+        return UPath(str(path), **opts)
+
+    def open(self, path: str, mode: str = "rb", **overrides: Any):
+        """Open *path* via fsspec using this spec's ``storage_options`` and cache
+        the handle. The caller supplies *path* because a file spec does not store
+        its own name (it is the key in the enclosing files mapping).
+
+        Handles are never serialized and are not opened automatically on load;
+        pair with :meth:`close` or use the collection-level ``opened`` context
+        manager.
+        """
+        import fsspec
+
+        opts = {**(self.storage_options or {}), **overrides}
+        self._handle = fsspec.open(str(path), mode, **opts).open()
+        return self._handle
+
+    @property
+    def is_open(self) -> bool:
+        """Whether a live handle from :meth:`open` is currently held."""
+        return self._handle is not None
+
+    def close(self) -> None:
+        """Close the cached handle, if any. Safe to call when already closed."""
+        if self._handle is not None:
+            try:
+                self._handle.close()
+            finally:
+                self._handle = None
 
     def __add__(self, other: GenericFileSpec) -> GenericFileSpec:
         if not isinstance(other, GenericFileSpec):
@@ -249,27 +301,66 @@ class InputFilesMixin:
     @model_validator(mode="before")
     def preproc_data(cls, data: Any) -> Any:
         data = copy.deepcopy(data)
+        new_data = {}
         for k, v in data.items():
+            # Canonicalize non-str keys (pathlib.Path / universal_pathlib.UPath)
+            # to their string form so the RootModel key type and format
+            # detection stay string-based; capture any storage_options a UPath
+            # key carries so the file can be reopened with the same credentials.
+            if isinstance(k, str):
+                key, key_storage_options = k, None
+            else:
+                key = str(k)
+                key_storage_options = getattr(k, "storage_options", None) or None
             if isinstance(v, (str, type(None))):
-                data[k] = {"object_path": v}
-                v = data[k]
+                v = {"object_path": v}
             if isinstance(v, dict):
-                fmt = identify_file_format(k)
+                v = dict(v)
+                fmt = identify_file_format(key)
                 if fmt == "root":
                     if "format" not in v:
                         v["format"] = "root"
                     else:
                         assert (
                             v["format"] == "root"
-                        ), f"Expected 'format' to be 'root', got {v['format']} for {k}"
+                        ), f"Expected 'format' to be 'root', got {v['format']} for {key}"
                 elif fmt == "parquet":
                     if "format" not in v:
                         v["format"] = "parquet"
                     else:
                         assert (
                             v["format"] == "parquet"
-                        ), f"Expected 'format' to be 'parquet', got {v['format']} for {k}"
-        return data
+                        ), f"Expected 'format' to be 'parquet', got {v['format']} for {key}"
+                if key_storage_options and not v.get("storage_options"):
+                    v["storage_options"] = key_storage_options
+            new_data[key] = v
+        return new_data
+
+    def upath(self, key: str, **overrides: Any):
+        """Return a ``universal_pathlib.UPath`` for *key* (see GenericFileSpec.upath)."""
+        return self[key].upath(key, **overrides)
+
+    def open(self, key: str, mode: str = "rb", **overrides: Any):
+        """Open the file *key* via fsspec, caching its handle (see GenericFileSpec.open)."""
+        return self[key].open(key, mode=mode, **overrides)
+
+    def close(self, key: str | None = None) -> None:
+        """Close one file's handle, or every open handle when *key* is None."""
+        if key is None:
+            for v in self.values():
+                v.close()
+        else:
+            self[key].close()
+
+    @contextlib.contextmanager
+    def opened(self, keys: Iterable[str] | None = None, mode: str = "rb"):
+        """Context manager yielding ``{key: handle}`` and closing all on exit."""
+        keys = list(self.keys()) if keys is None else list(keys)
+        try:
+            yield {k: self.open(k, mode=mode) for k in keys}
+        finally:
+            for k in keys:
+                self[k].close()
 
     @property
     def num_entries(self) -> int | None:
@@ -715,6 +806,22 @@ class DatasetSpec(BaseModel):
             filter_name=filter_name, filter_callable=filter_callable
         )
         return type(self)(**spec)
+
+    def upath(self, key: str, **overrides: Any):
+        """Return a ``universal_pathlib.UPath`` for file *key* (see GenericFileSpec.upath)."""
+        return self.files.upath(key, **overrides)
+
+    def open(self, key: str, mode: str = "rb", **overrides: Any):
+        """Open file *key* via fsspec, caching its handle (see GenericFileSpec.open)."""
+        return self.files.open(key, mode=mode, **overrides)
+
+    def close(self, key: str | None = None) -> None:
+        """Close one file's handle, or every open handle when *key* is None."""
+        self.files.close(key)
+
+    def opened(self, keys: Iterable[str] | None = None, mode: str = "rb"):
+        """Context manager yielding ``{key: handle}`` for the dataset's files."""
+        return self.files.opened(keys, mode=mode)
 
 
 class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
