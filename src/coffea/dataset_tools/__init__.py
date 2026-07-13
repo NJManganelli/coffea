@@ -28,6 +28,12 @@ from coffea.dataset_tools.preprocess import (
     preprocess_parquet,
     preprocess_root,
 )
+from coffea.dataset_tools.servicex import (
+    from_servicex,
+    to_servicex_dict,
+    to_servicex_sample,
+    to_servicex_spec,
+)
 from coffea.dataset_tools.splitting import hash_fileset, split_fileset
 
 __all__ = [
@@ -58,4 +64,8 @@ __all__ = [
     "DatasetSpec",
     "DataGroupSpec",
     "ModelFactory",
+    "from_servicex",
+    "to_servicex_spec",
+    "to_servicex_sample",
+    "to_servicex_dict",
 ]

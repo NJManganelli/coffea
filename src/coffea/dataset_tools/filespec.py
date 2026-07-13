@@ -716,6 +716,12 @@ class DatasetSpec(BaseModel):
         )
         return type(self)(**spec)
 
+    def to_servicex_sample(self, *, name: str, **kwargs):
+        """Build a ``servicex.Sample`` from this dataset (see servicex.to_servicex_sample)."""
+        from coffea.dataset_tools.servicex import to_servicex_sample
+
+        return to_servicex_sample(self, name=name, **kwargs)
+
 
 class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
     def __iter__(self) -> Iterable[str]:
@@ -837,6 +843,25 @@ class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
         if filter_callable is not None:
             new_dict = {k: v for k, v in new_dict.items() if filter_callable(v)}
         return type(self)(new_dict)
+
+    @classmethod
+    def from_servicex(cls, delivered, **kwargs) -> DataGroupSpec:
+        """Build a DataGroupSpec from a ``servicex.deliver()`` result (see servicex.from_servicex)."""
+        from coffea.dataset_tools.servicex import from_servicex
+
+        return from_servicex(delivered, **kwargs)
+
+    def to_servicex(self, **kwargs):
+        """Build a ``servicex.ServiceXSpec`` from this group (see servicex.to_servicex_spec)."""
+        from coffea.dataset_tools.servicex import to_servicex_spec
+
+        return to_servicex_spec(self, **kwargs)
+
+    def to_servicex_dict(self, **kwargs) -> dict:
+        """Build a dependency-free ServiceX spec dict from this group (see servicex.to_servicex_dict)."""
+        from coffea.dataset_tools.servicex import to_servicex_dict
+
+        return to_servicex_dict(self, **kwargs)
 
 
 def identify_file_format(name_or_directory: str) -> str:
