@@ -726,6 +726,12 @@ class DatasetSpec(BaseModel):
 
         return dataset_html(self)
 
+    def explore(self, other=None) -> None:
+        """Launch the interactive Textual explorer (requires coffea[tui])."""
+        from coffea.dataset_tools._explore import explore
+
+        explore(self, other=other)
+
 
 class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
     def __iter__(self) -> Iterable[str]:
@@ -857,6 +863,12 @@ class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
         from coffea.dataset_tools._display import datagroup_html
 
         return datagroup_html(self)
+
+    def explore(self, other=None) -> None:
+        """Launch the interactive Textual explorer (requires coffea[tui])."""
+        from coffea.dataset_tools._explore import explore
+
+        explore(self, other=other)
 
 
 def identify_file_format(name_or_directory: str) -> str:
