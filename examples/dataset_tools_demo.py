@@ -34,6 +34,7 @@ from coffea.util import coffea_console, describe_root_file, extract_cms_provenan
 
 DY = "tests/samples/nano_dy.root"
 DIMUON = "tests/samples/nano_dimuon.root"
+PFNANO = "tests/samples/pfnano.root"  # a real CMS NanoAOD with a ParameterSets tree
 
 
 def rule(title: str) -> None:
@@ -62,7 +63,10 @@ def main() -> None:
             "DoubleMuon": {"files": {DIMUON: "Events"}, "metadata": {"is_data": True}},
         }
     )
-    available, allfiles = preprocess(fileset, step_size=20_000, save_form=True)
+    # backend="iterative" is the dask-free preprocessing path (also handles RNTuple)
+    available, allfiles = preprocess(
+        fileset, step_size=20_000, save_form=True, backend="iterative"
+    )
     coffea_console.print(available)  # __rich__ tree with badge / sparkline / columns
 
     # ------------------------------------------------------------------ #
@@ -112,15 +116,15 @@ def main() -> None:
     # 5. CMS ParameterSets provenance decoding
     # ------------------------------------------------------------------ #
     rule("CMS ParameterSets provenance (extract_cms_provenance)")
-    prov = extract_cms_provenance(DY)
-    if prov:
-        coffea_console.print(prov)
-        coffea_console.print("global_tag matches:", cms_provenance(DY, r"global_tag"))
-    else:
-        coffea_console.print(
-            "[dim]sample has no ParameterSets tree; on a real CMS NanoAOD this "
-            "decodes global_tag / process_names / jec_levels from the config blob[/dim]"
-        )
+    # pfnano.root is a real CMS NanoAOD: its ParameterSets tree embeds the whole
+    # cmsRun config, from which the global tag / process chain / JEC levels decode.
+    prov = extract_cms_provenance(PFNANO)  # curated view
+    coffea_console.print("global_tag:", prov["global_tag"])
+    coffea_console.print("process chain:", prov["process_names"])
+    coffea_console.print("jec_levels:", prov["jec_levels"])
+    # regex key search over the full 600+ decoded parameters (the TUI provenance tab)
+    hits = cms_provenance(PFNANO, r"globaltag|process_name", detail="full")
+    coffea_console.print(f"regex 'globaltag|process_name' -> {len(hits)} decoded keys")
 
     # ------------------------------------------------------------------ #
     # 6. Explorer logic: diff, column filter, what-if, provenance
