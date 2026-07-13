@@ -28,6 +28,11 @@ from coffea.dataset_tools.preprocess import (
     preprocess_parquet,
     preprocess_root,
 )
+from coffea.dataset_tools.rdataframe import (
+    from_rdf_spec,
+    to_rdf_spec,
+    to_rdf_spec_json,
+)
 from coffea.dataset_tools.splitting import hash_fileset, split_fileset
 
 __all__ = [
@@ -58,4 +63,7 @@ __all__ = [
     "DatasetSpec",
     "DataGroupSpec",
     "ModelFactory",
+    "from_rdf_spec",
+    "to_rdf_spec",
+    "to_rdf_spec_json",
 ]
