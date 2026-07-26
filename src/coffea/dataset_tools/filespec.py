@@ -908,6 +908,22 @@ class DatasetSpec(BaseModel):
         spec = self._prune_form_for_files(spec)
         return type(self)(**spec)
 
+    def __rich__(self):
+        from coffea.dataset_tools._display import dataset_tree
+
+        return dataset_tree(self)
+
+    def _repr_html_(self) -> str:
+        from coffea.dataset_tools._display import dataset_html
+
+        return dataset_html(self)
+
+    def explore(self, other=None) -> None:
+        """Launch the interactive Textual explorer (requires coffea[tui])."""
+        from coffea.dataset_tools._explore import explore
+
+        explore(self, other=other)
+
 
 class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
     def __iter__(self) -> Iterable[str]:
@@ -1029,6 +1045,22 @@ class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
         if filter_callable is not None:
             new_dict = {k: v for k, v in new_dict.items() if filter_callable(v)}
         return type(self)(new_dict)
+
+    def __rich__(self):
+        from coffea.dataset_tools._display import datagroup_tree
+
+        return datagroup_tree(self)
+
+    def _repr_html_(self) -> str:
+        from coffea.dataset_tools._display import datagroup_html
+
+        return datagroup_html(self)
+
+    def explore(self, other=None) -> None:
+        """Launch the interactive Textual explorer (requires coffea[tui])."""
+        from coffea.dataset_tools._explore import explore
+
+        explore(self, other=other)
 
 
 def identify_file_format(name_or_directory: str) -> str:
