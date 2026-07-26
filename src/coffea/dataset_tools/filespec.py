@@ -1084,6 +1084,24 @@ class DataGroupSpec(RootModel[dict[str, DatasetSpec]], MutableMapping):
         from coffea.dataset_tools.servicex import to_servicex_dict
 
         return to_servicex_dict(self, **kwargs)
+    @classmethod
+    def from_rdf_spec(cls, spec) -> DataGroupSpec:
+        """Build a DataGroupSpec from an RDataFrame dataset spec (see rdataframe.from_rdf_spec)."""
+        from coffea.dataset_tools.rdataframe import from_rdf_spec
+
+        return from_rdf_spec(spec)
+
+    def to_rdf_spec(self) -> dict:
+        """Convert to an RDataFrame dataset-spec dict (see rdataframe.to_rdf_spec)."""
+        from coffea.dataset_tools.rdataframe import to_rdf_spec
+
+        return to_rdf_spec(self)
+
+    def to_rdf_spec_json(self, path=None, *, indent: int = 2) -> str:
+        """Serialize as RDataFrame spec JSON (see rdataframe.to_rdf_spec_json)."""
+        from coffea.dataset_tools.rdataframe import to_rdf_spec_json
+
+        return to_rdf_spec_json(self, path, indent=indent)
 
 
 def identify_file_format(name_or_directory: str) -> str:

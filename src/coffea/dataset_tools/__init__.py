@@ -42,6 +42,11 @@ from coffea.dataset_tools.servicex import (
     to_servicex_sample,
     to_servicex_spec,
 )
+from coffea.dataset_tools.rdataframe import (
+    from_rdf_spec,
+    to_rdf_spec,
+    to_rdf_spec_json,
+)
 from coffea.dataset_tools.splitting import hash_fileset, split_fileset
 
 __all__ = [
@@ -82,4 +87,7 @@ __all__ = [
     "to_servicex_spec",
     "to_servicex_sample",
     "to_servicex_dict",
+    "from_rdf_spec",
+    "to_rdf_spec",
+    "to_rdf_spec_json",
 ]
