@@ -1,0 +1,138 @@
+name: Agent-file approvals
+
+# Requires TWO code-owner approvals on PRs that touch the files governing
+# AI-agent behavior. Branch protection cannot express this: its approval count
+# applies per branch rather than per path, and "Require review from Code Owners"
+# is satisfied by a single owner. Enforcing it here keeps ordinary PRs at the
+# repository's normal approval count. See "Provenance & protection" in AGENTS.md.
+#
+# To have any effect this check must be marked REQUIRED in branch protection for
+# the default branch. It therefore runs on every PR and succeeds immediately when
+# no agent-governance file is touched — a `paths:` filter would leave the required
+# check permanently pending on unrelated PRs, blocking them forever.
+#
+# INVARIANT: CODEOWNERS must list at least three individual @handles for these
+# paths, so that two owners can still approve when a third authors the PR. Team
+# handles (@org/team) are NOT expanded here — doing so needs org-read scope, which
+# the default GITHUB_TOKEN lacks and which would mean storing a PAT in the very
+# workflow meant to guard against credential compromise. List individual handles
+# alongside any team. If the invariant is broken this check fails closed and says
+# how to recover, rather than passing silently.
+#
+# SECURITY NOTES:
+#   * Never checks out or executes any PR content; reads only the REST API.
+#   * CODEOWNERS is read from the BASE branch, so a PR cannot grant itself owners
+#     by editing that file.
+#   * `pull_request_target` runs the workflow definition from the BASE branch, so
+#     a PR cannot disable this check by editing this file.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agent-file-approvals-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  two-code-owner-approvals:
+    name: two code-owner approvals
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const REQUIRED = 2;
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const pull_number = pr.number;
+
+            const guardedExact = ['AGENTS.md', 'CLAUDE.md', 'ARCHITECTURE.md', '.github/CODEOWNERS'];
+            const guardedPrefixes = [
+              'docs/agents/',
+              '.claude/',
+              '.github/workflows/agent-file-guard.yml',
+              '.github/workflows/agent-file-approvals.yml',
+            ];
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number, per_page: 100,
+            });
+            const hits = files
+              .map((f) => f.filename)
+              .filter((n) => guardedExact.includes(n) || guardedPrefixes.some((p) => n.startsWith(p)));
+            if (hits.length === 0) {
+              core.info('No agent-governance files changed; check not applicable.');
+              return;
+            }
+
+            // CODEOWNERS from the BASE branch — never from the PR head.
+            const res = await github.rest.repos.getContent({
+              owner, repo, path: '.github/CODEOWNERS', ref: pr.base.ref,
+            });
+            const codeowners = Buffer.from(res.data.content, 'base64').toString('utf8');
+
+            const owners = new Set();
+            const teams = [];
+            for (const line of codeowners.split('\n')) {
+              const stripped = line.replace(/#.*$/, '').trim();
+              if (!stripped) continue;
+              for (const tok of stripped.split(/\s+/).slice(1)) {
+                if (!tok.startsWith('@')) continue;
+                if (tok.includes('/')) teams.push(tok.slice(1));
+                else owners.add(tok.slice(1).toLowerCase());
+              }
+            }
+
+            // GitHub does not let an author approve their own PR, so the pool of
+            // owners who could possibly approve excludes them.
+            const author = ((pr.user && pr.user.login) || '').toLowerCase();
+            const eligible = [...owners].filter((o) => o !== author);
+
+            if (eligible.length < REQUIRED) {
+              const teamNote = teams.length
+                ? ` Team handles (${teams.map((t) => '@' + t).join(', ')}) are listed but not expanded by this check.`
+                : '';
+              core.setFailed(
+                `This check cannot pass as configured: ${REQUIRED} code-owner approvals are required, but ` +
+                  `only ${eligible.length} individual code owner(s) are eligible to approve this PR.${teamNote}\n` +
+                  `Recover by either (a) listing at least ${REQUIRED + 1} individual @handles for these paths in ` +
+                  `.github/CODEOWNERS on '${pr.base.ref}' — alongside any team handle, which GitHub still enforces ` +
+                  `natively — or (b) un-requiring the "two code-owner approvals" check in branch protection, ` +
+                  `merging the fix, and re-requiring it.`
+              );
+              return;
+            }
+
+            // Keep only each reviewer's most recent decisive review, so a dismissed
+            // or superseded approval does not count.
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number, per_page: 100,
+            });
+            const latest = new Map();
+            for (const r of reviews) {
+              if (!r.user) continue;
+              if (!['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state)) continue;
+              latest.set(r.user.login.toLowerCase(), r.state);
+            }
+            const approving = [...latest]
+              .filter(([login, state]) => state === 'APPROVED' && owners.has(login))
+              .map(([login]) => login);
+
+            core.info(`guarded files changed:\n${hits.map((h) => `  - ${h}`).join('\n')}`);
+            core.info(`individual code owners: ${[...owners].sort().join(', ')}`);
+            core.info(`eligible to approve (author excluded): ${eligible.sort().join(', ')}`);
+            core.info(`approving code owners (${approving.length}/${REQUIRED}): ${approving.sort().join(', ') || '(none)'}`);
+
+            if (approving.length < REQUIRED) {
+              core.setFailed(
+                `This PR changes agent-governance files and needs ${REQUIRED} code-owner approvals; ` +
+                  `it has ${approving.length}.`
+              );
+            }

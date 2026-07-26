@@ -18,3 +18,4 @@
 /.claude/                                    @lgray @NJManganelli @nsmith- @ikrommyd
 /.github/CODEOWNERS                          @lgray @NJManganelli @nsmith- @ikrommyd
 /.github/workflows/agent-file-guard.yml      @lgray @NJManganelli @nsmith- @ikrommyd
+/.github/workflows/agent-file-approvals.yml  @lgray @NJManganelli @nsmith- @ikrommyd
