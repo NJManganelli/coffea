@@ -37,8 +37,8 @@ behaviors, lazy `NanoEvents`) and is unmaintained.
    than silently shadowing it (see *Common gotchas* in `ARCHITECTURE.md`).
 5. **Processors and executors** still exist, but several executor arguments are
    keyword-only and `postprocess` is optional.
-6. **`PackedSelection` and `Weights`** moved from `coffea.processor` to
-   `coffea.analysis_tools`.
+6. **`PackedSelection` and `Weights`** import from `coffea.analysis_tools`; the
+   `coffea.processor` re-export is gone.
 
 ---
 
@@ -46,6 +46,8 @@ behaviors, lazy `NanoEvents`) and is unmaintained.
 
 Those versions took `delayed=True/False`, built `dask-awkward` graphs and called
 `.compute()`. Virtual arrays (the 2025.7 line) changed the default execution model.
+This is the hardest migration: the code that builds and computes the graph goes,
+not only the flags.
 
 > Dask and distributed remain a **first-tier job executor** (`DaskExecutor` in
 > `Runner`, a distributed `Client`, `apply_to_fileset`). What is de-emphasized is
@@ -55,19 +57,42 @@ Those versions took `delayed=True/False`, built `dask-awkward` graphs and called
 1. **`delayed=` is gone — use `mode=`.** `delayed=True` becomes `mode="dask"`,
    `delayed=False` becomes `mode="eager"`, and the new default is
    `mode="virtual"`. There is no shim: update every `from_root`/`from_parquet`
-   call.
-2. **The default data model is graph-free.** Code that built a graph only to
-   materialize a local result can switch to `mode="virtual"` and drop the compute.
-   Keep `mode="dask"` when you want the graph, typically with a dask executor and
-   `apply_to_fileset`.
-3. **The dask stack is optional (2026.7).** Eager and virtual workflows import no
+   call. Keep `mode="dask"` only where the graph is the point; `preprocess` and
+   `apply_to_fileset` remain that pipeline (`ARCHITECTURE.md`, *"dask" mode*).
+2. **The processor body loses the graph.** `dask_awkward` calls become the
+   `awkward` calls they mirror (`dak.num` to `ak.num`, `dak.to_parquet` to
+   `ak.to_parquet`), `hist.dask.Hist` becomes `hist.Hist` and fills at once, and
+   every `.compute()` / `dask.compute(...)` goes. `process()` returns materialized
+   accumulatables (`hist.Hist`, dicts, `column_accumulator`) that `accumulate`
+   merges. `PackedSelection`, `Weights` and the correction factories keep their
+   API. Columns are still read one at a time on first access; `ak.materialize`
+   forces a read when you need one.
+3. **Scaling out moves from `apply_to_fileset` to `Runner`.** `preprocess`, then
+   `apply_to_fileset`, then `dask.compute(out, report)` becomes one call on a
+   plain fileset that `Runner` chunks itself:
+
+   ```python
+   from coffea.processor import Runner, DaskExecutor  # or Futures/Iterative/TaskVine/Parsl
+
+   run = Runner(DaskExecutor(client=client), chunksize=250_000, maxchunks=None,
+                skipbadfiles=True, savemetrics=True, schema=NanoAODSchema)
+   out, metrics = run(fileset, processor_instance=MyProcessor(), treename="Events")
+   ```
+
+   `fileset` is `{dataset: {"files": {path: "Events"}, "metadata": {...}}}`, or
+   `{dataset: [paths]}` with `treename=`. `max_chunks(...)` becomes `maxchunks=`;
+   the read-error report becomes `skipbadfiles=` plus the `(out, metrics)` pair
+   from `savemetrics=True`. `events.metadata` carries `dataset`, `filename`,
+   `treename`, `entrystart`, `entrystop` and `fileuuid` beside your own keys,
+   which must not reuse those names.
+4. **The dask stack is optional (2026.7).** Eager and virtual workflows import no
    dask; install `'coffea[dask,dask-awkward]'` if you need it.
-4. **Preprocessing.** `preprocess()` returns `(available, all)` and saves forms by
-   default; `steps_per_file`/`step_size` replace "chunks"; pass
-   `{"allow_read_errors_with_report": True}` in `uproot_options` for access
-   reports. RNTuple inputs landed in 2025.11, buffer caches in 2026.4, and
-   `split_fileset`/`Result` in 2026.6.
-5. **Schemas and tools** added along the way: EDM4HEP and updated FCC, Scouting,
+5. **Preprocessing, in the dask pipeline.** `preprocess()` returns
+   `(available, all)` and saves forms by default; `steps_per_file`/`step_size`
+   replace "chunks"; pass `{"allow_read_errors_with_report": True}` in
+   `uproot_options` for access reports. RNTuple inputs landed in 2025.11, buffer
+   caches in 2026.4, and `split_fileset`/`Result` in 2026.6.
+6. **Schemas and tools** added along the way: EDM4HEP and updated FCC, Scouting,
    weighted N-1, correctionlib adapters for `CorrectedJetsFactory`.
 
 ---

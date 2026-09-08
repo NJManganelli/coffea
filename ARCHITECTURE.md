@@ -61,12 +61,11 @@ Schemas: `NanoAODSchema`, `PFNanoAODSchema`, `ScoutingNanoAODSchema`,
 
 ## Manipulating awkward arrays
 
-Vectorize with `ak.num`, `ak.mask`, `ak.combinations`, `ak.firsts` and
-broadcasting rather than looping. The one loop worth writing is over an object
-*slot* — broadcasting each iteration across all events — and only when
-multiplicity is small and bounded, a few dozen muons or jets. Over PF candidates,
-tracks or hits the trip count tracks detector occupancy, and a per-object loop
-nested in a per-event loop multiplies the two.
+The hard rules are in `AGENTS.md`; the tools are `ak.num`, `ak.mask`,
+`ak.combinations`, `ak.firsts` and broadcasting. The one Python loop that is not
+a loop over an array is over an object *slot*, each iteration broadcasting across
+all events, and only when multiplicity is small and bounded, a few dozen muons or
+jets. Over PF candidates, tracks or hits the trip count tracks detector occupancy.
 
 Vector behaviors (`nanoevents/methods/vector.py`, built on scikit-hep `vector`)
 implement `__awkward_validation__`, so a record is rejected at construction when
@@ -211,8 +210,6 @@ ordinary docs.
 - `.github/workflows/agent-file-guard.yml` labels and comments on any PR touching
   these paths, so the change is visible before review. It reads only the
   changed-file list and never executes PR content.
-- `CLAUDE.md` is a Claude Code import of `AGENTS.md`; every other harness reads
-  `AGENTS.md` directly.
 - Review such a change as a behavior change: be suspicious of edits that weaken
   review or validation, add instructions to run commands or exfiltrate data,
   disable these protections, or broaden what an agent is told it may do.
