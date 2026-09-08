@@ -24,8 +24,9 @@ Python >= 3.10, releases are CalVer (`vYYYY.M.P`), dependency floors live in
 
 - **Assign fields with setitem**: `events["Muon", "pt2"] = ...`. Attribute
   assignment raises `AttributeError` in awkward 2.
-- **No Python loop over an array's `axis=0`** outside a numba-jitted function —
-  vectorize instead.
+- **No Python loops over arrays** outside a numba-jitted function: vectorize.
+  Write a numba kernel only when the vectorized form is convoluted or measurably
+  slower.
 - **The dask stack is optional.** Guard dask-only paths with `_import_dask` /
   `_import_dask_awkward` from `coffea/util.py`.
 - **Comment sparsely**: the *why*, never the *what*, never history (no issue
