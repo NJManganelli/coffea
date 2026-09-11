@@ -27,7 +27,8 @@ recipe: `.claude/skills/README.md`.
   tolerance or skip to get green; diagnose an unrelated failure.
 - **Correct first, fast second.** Once the mirrored test confirms the physics
   and numerics, assess performance under the `AGENTS.md` vectorization rule; an
-  optimization leaves those numbers unchanged.
+  optimization keeps those numbers consistent within expected numerical
+  precision.
 
 ## Output
 
