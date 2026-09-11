@@ -25,6 +25,9 @@ recipe: `.claude/skills/README.md`.
   **the `AGENTS.md` hard rules bind absolutely.**
 - **Per round, run the README verification scope.** Never weaken an assertion,
   tolerance or skip to get green; diagnose an unrelated failure.
+- **Correct first, fast second.** Once the mirrored test confirms the physics
+  and numerics, assess performance under the `AGENTS.md` vectorization rule; an
+  optimization leaves those numbers unchanged.
 
 ## Output
 
