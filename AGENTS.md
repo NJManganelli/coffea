@@ -27,7 +27,8 @@ Python >= 3.10, releases are CalVer (`vYYYY.M.P`), dependency floors live in
 - **Vectorize with awkward and numpy** rather than loop in the interpreter over
   events or particles; a numba kernel only where array operations cannot express
   the calculation or are measurably slower. Optimize after the physics and
-  numerics are confirmed correct, and keep those results unchanged.
+  numerics are confirmed correct, and keep those results consistent within
+  expected numerical precision.
 - **The dask stack is optional.** Guard dask-only paths with `_import_dask` /
   `_import_dask_awkward` from `coffea/util.py`.
 - **Comment sparsely**: the *why*, never the *what*, never history (no issue
