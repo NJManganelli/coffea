@@ -100,7 +100,9 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "awkward": ("https://awkward-array.org/doc/main/", None),
+    "distributed": ("https://distributed.dask.org/en/latest/", None),
     "dask-awkward": ("https://dask-awkward.readthedocs.io/en/stable/", None),
+    "vector": ("https://vector.readthedocs.io/en/latest/", None),
 }
 
 napoleon_preprocess_types = True
@@ -142,7 +144,7 @@ html_logo = "logo/coffea_favicon.png"
 html_favicon = "logo/coffea_favicon.png"
 
 # -- MyST configuration -------------------------------------------------
-myst_enable_extensions = ["colon_fence", "deflist"]
+myst_enable_extensions = ["colon_fence", "deflist", "dollarmath"]
 myst_heading_anchors = 3
 
 # exclude for now

@@ -1,3 +1,4 @@
+import inspect
 import io
 import pathlib
 import warnings
@@ -247,19 +248,23 @@ class NanoEventsFactory:
         self._mapping = mapping
         self._partition_key = partition_key
         self._events = lambda: None
+        self._mapping_accepts_form_mapping = None
 
     def __getstate__(self):
         return {
             "schema": self._schema,
             "mapping": self._mapping,
             "partition_key": self._partition_key,
+            "mode": self._mode,
         }
 
     def __setstate__(self, state):
         self._schema = state["schema"]
         self._mapping = state["mapping"]
         self._partition_key = state["partition_key"]
+        self._mode = state.get("mode", "virtual")
         self._events = lambda: None
+        self._mapping_accepts_form_mapping = None
 
     @classmethod
     def from_root(
@@ -456,6 +461,8 @@ class NanoEventsFactory:
             file_handle=file_handle,
             use_ak_forth=use_ak_forth,
             virtual=mode == "virtual",
+            decompression_executor=decompression_executor,
+            interpretation_executor=interpretation_executor,
             preloaded_arrays=preloaded_arrays,
             buffer_cache=buffer_cache,
         )
@@ -470,7 +477,6 @@ class NanoEventsFactory:
             mapping,
             partition_key,
             base_form,
-            buffer_cache,
             schemaclass,
             metadata,
             mode=mode,
@@ -495,7 +501,7 @@ class NanoEventsFactory:
 
         Parameters
         ----------
-            file : str or pathlib.Path or pyarrow.NativeFile or io.IOBase
+            file : str or pathlib.Path or io.IOBase or pyarrow.NativeFile or pyarrow.parquet.ParquetFile
                 The filename or already opened file using e.g. ``pyarrow.NativeFile()``.
             mode : {"eager", "virtual", "dask"}, default "virtual"
                 Backend to use when interpreting parquet data.
@@ -570,6 +576,8 @@ class NanoEventsFactory:
             warnings.warn(
                 f"{schemaclass} is not dask capable despite allowing dask, generating non-dask nanoevents"
             )
+        # only the str branch opens an fsspec handle for the shim to close
+        fs_file = None
         if isinstance(file, ftypes):
             table_file = pyarrow.parquet.ParquetFile(file, **parquet_options)
         elif isinstance(file, str):
@@ -617,7 +625,6 @@ class NanoEventsFactory:
             mapping,
             partition_key,
             base_form,
-            buffer_cache,
             schemaclass,
             metadata,
             mode,
@@ -685,7 +692,11 @@ class NanoEventsFactory:
         )
         uuidpfn = {uuid: array_source}
         mapping = PreloadedSourceMapping(
-            PreloadedOpener(uuidpfn), entry_start, entry_stop, access_log=access_log
+            PreloadedOpener(uuidpfn),
+            entry_start,
+            entry_stop,
+            access_log=access_log,
+            buffer_cache=buffer_cache,
         )
         mapping.preload_column_source(partition_key[0], partition_key[1], array_source)
 
@@ -695,7 +706,6 @@ class NanoEventsFactory:
             mapping,
             partition_key,
             base_form,
-            buffer_cache,
             schemaclass,
             metadata,
             mode="eager",
@@ -707,7 +717,6 @@ class NanoEventsFactory:
         mapping,
         partition_key,
         base_form,
-        buffer_cache,
         schemaclass,
         metadata,
         mode,
@@ -722,9 +731,6 @@ class NanoEventsFactory:
                 Basic information about the column source, uuid, paths.
             base_form : dict
                 The awkward form describing the nanoevents interpretation of the mapped file.
-            buffer_cache : dict
-                A dict-like interface to a cache object. Only bare numpy arrays will be placed in this cache,
-                using globally-unique keys.
             schemaclass : BaseSchema
                 A schema class deriving from `BaseSchema` and implementing the desired view of the file
             metadata : dict
@@ -782,7 +788,18 @@ class NanoEventsFactory:
         if self._mode == "dask":
             dask_awkward = _import_dask_awkward()
             dask_awkward.lib.core.dak_cache.clear()
-            events = self._mapping(form_mapping=self._schema)
+
+            # Whether the mapping accepts form_mapping (explicitly or via **kwargs) only
+            # depends on the mapping callable, so inspect its signature once and memoize.
+            if self._mapping_accepts_form_mapping is None:
+                params = inspect.signature(self._mapping).parameters
+                self._mapping_accepts_form_mapping = "form_mapping" in params or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+                )
+            if self._mapping_accepts_form_mapping:
+                events = self._mapping(form_mapping=self._schema)
+            else:
+                events = self._mapping()
             report = None
             if isinstance(events, tuple):
                 events, report = events

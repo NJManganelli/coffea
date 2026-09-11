@@ -4,14 +4,13 @@ import base64
 import gzip
 import hashlib
 import warnings
-from functools import partial
+from functools import partial, update_wrapper
 from typing import Any
 
 import awkward
 import cloudpickle
 import fsspec
 import hist
-import numba
 import numpy
 import uproot
 from rich.console import Console
@@ -28,7 +27,6 @@ from rich.progress import (
 
 ak = awkward
 np = numpy
-nb = numba
 
 
 __all__ = [
@@ -73,20 +71,6 @@ def save(output, filename, compression="lz4"):
     """
     with fsspec.open(filename, "wb", compression=compression) as fout:
         cloudpickle.dump(output, fout)
-
-
-def _hex(string):
-    try:
-        return string.hex()
-    except AttributeError:
-        return "".join(f"{ord(c):02x}" for c in string)
-
-
-def _ascii(maybebytes):
-    try:
-        return maybebytes.decode("ascii")
-    except AttributeError:
-        return maybebytes
 
 
 def _hash(items):
@@ -377,6 +361,15 @@ class _DaskProperty(property):
         self._dask_get = _make_dask_descriptor(func)
         return self
 
+    def __reduce__(self):
+        # property offers no reduction of its own (fget/fset/fdel live in C
+        # slots), so behavior classes carrying one cannot be pickled by value.
+        return (
+            type(self),
+            (self.fget, self.fset, self.fdel),
+            {"__doc__": self.__doc__, "_dask_get": self._dask_get},
+        )
+
 
 def _adapt_naive_dask_get(func):
     def wrapper(self, dask_array, *args, **kwargs):
@@ -411,19 +404,26 @@ class _DaskMethod:
 
         return self._impl.__get__(instance, owner)
 
+    # this __call__ method is only present to signal
+    # to Sphinx that these objects should be treated as methods
+    # in the documentation
+    # since this is purely for tricking Sphinx,
+    # it raises a NotImplemented error to prevent anyone from accidentally
+    # calling it directly (and to check that my doc-trick doesn't change
+    # any of the behavior under test)
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
+
     def dask(self, func):
         self._dask_get = _make_dask_method(func)
-        return self
+        return update_wrapper(self, self._impl)
 
 
 def dask_method(maybe_func=None, *, no_dispatch=False):
     def dask_method_wrapper(func):
         method = _DaskMethod(func)
-
-        if no_dispatch:
-            return method.dask(_adapt_naive_dask_get(func))
-        else:
-            return method
+        f = method.dask(_adapt_naive_dask_get(func)) if no_dispatch else method
+        return update_wrapper(f, func)
 
     if maybe_func is None:
         return dask_method_wrapper

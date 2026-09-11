@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import sys
 from collections.abc import Callable
@@ -251,6 +252,10 @@ def filter_files(
     """
     Modify the input fileset so that only the files of each dataset that pass the filter remain.
 
+    This is intended for preprocessed filesets: for ``DatasetSpec`` entries the filtered
+    files are rebuilt as ``PreprocessedFiles``, so calling it on a not-yet-preprocessed
+    dataset (whose files are not all concrete specs) raises a ``pydantic.ValidationError``.
+
     Parameters
     ----------
         fileset : DataGroupSpec
@@ -269,7 +274,7 @@ def filter_files(
         to_apply_to = getattr(entry, "files") if is_datasetspec else entry["files"]
         updated = dict(filter(thefilter, to_apply_to.items()))
         if is_datasetspec:
-            out[name].files = InputFiles(updated)
+            out[name].files = PreprocessedFiles(updated)
         else:
             out[name]["files"] = updated
     return out
@@ -321,7 +326,7 @@ def get_failed_steps_for_dataset(
         )
 
     for failure in failures:
-        args_as_types = tuple(eval(arg) for arg in failure.args)
+        args_as_types = tuple(ast.literal_eval(arg) for arg in failure.args)
 
         fname, object_path, start, stop, is_step = args_as_types
 
